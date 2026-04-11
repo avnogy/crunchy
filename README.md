@@ -13,10 +13,16 @@ Jellyfin does not have a built-in offline sync flow that fits this use case, and
 ## Quick Start
 
 ```bash
-docker compose up --build
+docker compose up
 ```
 
 Set the values you need in `.env` first.
+
+For local development with a local image build, use:
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
 
 | Variable | Default | Notes |
 | --- | --- | --- |
@@ -33,10 +39,21 @@ Set the values you need in `.env` first.
 | `APP_PORT` | `8000` | App bind port. |
 | `LOG_LEVEL` | `INFO` | Application log level. |
 | `FFMPEG_FLAGS` | `""` | Extra ffmpeg flags, space-separated. |
-| `APP_UID` | `1000` | Docker build arg used for the container user ID. |
-| `APP_GID` | `1000` | Docker build arg used for the container group ID. |
+| `APP_UID` | `1000` | Optional runtime UID override for the container user. |
+| `APP_GID` | `1000` | Optional runtime GID override for the container group. |
+| `CRUNCHY_IMAGE` | `ghcr.io/avnogy/crunchy:latest` | Image used by `docker-compose.yml`. |
 
 The compose setup stores app settings in `./config/settings.json` and writes finished files to `./output`.
+
+## Container Releases
+
+GitHub Actions can publish an image to `ghcr.io` from `main` and from version tags like `v1.0.0`.
+
+The existing `APP_UID` and `APP_GID` behavior is preserved for both local builds and published images:
+
+- Production `docker compose up` uses `ghcr.io/avnogy/crunchy:latest` by default and can be overridden with `CRUNCHY_IMAGE`.
+- Local `docker compose -f docker-compose.dev.yml up --build` still works with a local build.
+- Published images can remap the `crunchy` user at container startup by setting `APP_UID` and `APP_GID` as environment variables.
 
 ## Notes
 

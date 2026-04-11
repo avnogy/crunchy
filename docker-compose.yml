@@ -1,10 +1,6 @@
 services:
   crunchy:
-    build:
-      context: .
-      args:
-        APP_UID: ${APP_UID:-1000}
-        APP_GID: ${APP_GID:-1000}
+    image: ${CRUNCHY_IMAGE:-ghcr.io/avnogy/crunchy:latest}
     ports:
       - "${APP_PORT:-8000}:${APP_PORT:-8000}"
     env_file:

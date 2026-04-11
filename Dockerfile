@@ -9,7 +9,7 @@ ARG APP_GID=1000
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends ffmpeg gosu \
     && groupadd --gid "${APP_GID}" crunchy \
     && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --home-dir /home/crunchy crunchy \
     && mkdir -p /data/temp /data/output \
@@ -20,10 +20,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+COPY docker/entrypoint.sh /entrypoint.sh
 RUN chown -R crunchy:crunchy /app
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 8000
 
-USER crunchy
+ENTRYPOINT ["/entrypoint.sh"]
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
