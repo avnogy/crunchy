@@ -69,7 +69,7 @@ def cancel_job_artifacts(job: Job) -> None:
 
 
 def _build_transcode_url(settings: Settings, job: Job, source_id: str) -> str:
-    url = f"{settings.jellyfin_api_url}/Videos/{job.item_id}/master.m3u8"
+    url = f"{settings.jellyfin_api_url}/Videos/{job.item_id}/main.m3u8"
     params = {
         "api_key": settings.jellyfin_api_key,
         "playSessionId": str(uuid.uuid4()),
