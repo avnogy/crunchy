@@ -1,0 +1,63 @@
+{% extends "shared/base.html" %} {% block title %}crunchy{% endblock %} {% block
+content %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
+    <h2 class="text-xl font-semibold mb-6 text-gray-700">Library</h2>
+    {% if library_items %}
+    <h2 class="text-xl font-semibold mb-4 text-gray-700">Movies</h2>
+    <div class="flex gap-4 overflow-x-auto pb-4 mb-8 scrollbar-thin">
+        {% for item in library_items if item.type == 'Movie' %}
+        <article
+            class="w-40 flex-shrink-0 bg-gray-50 rounded-lg overflow-hidden border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all"
+        >
+            <a href="/items/{{ item.id }}">
+                <img
+                    src="{{ item.image }}"
+                    alt="{{ item.name }}"
+                    class="w-full aspect-[2/3] object-cover"
+                    loading="lazy"
+                />
+            </a>
+            <div class="p-3">
+                <h3 class="text-xs font-semibold line-clamp-2">
+                    <a
+                        href="/items/{{ item.id }}"
+                        class="text-blue-600 hover:text-blue-700"
+                        >{{ item.name }}</a
+                    >
+                </h3>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+
+    <h2 class="text-xl font-semibold mb-4 text-gray-700">Series</h2>
+    <div class="flex gap-4 overflow-x-auto pb-4 scrollbar-thin">
+        {% for item in library_items if item.type == 'Series' %}
+        <article
+            class="w-40 flex-shrink-0 bg-gray-50 rounded-lg overflow-hidden border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all"
+        >
+            <a href="/items/{{ item.id }}">
+                <img
+                    src="{{ item.image }}"
+                    alt="{{ item.name }}"
+                    class="w-full aspect-[2/3] object-cover"
+                    loading="lazy"
+                />
+            </a>
+            <div class="p-3">
+                <h3 class="text-xs font-semibold line-clamp-2">
+                    <a
+                        href="/items/{{ item.id }}"
+                        class="text-blue-600 hover:text-blue-700"
+                        >{{ item.name }}</a
+                    >
+                </h3>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-gray-500">No library items</p>
+    {% endif %}
+</div>
+{% endblock %}

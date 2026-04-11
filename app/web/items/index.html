@@ -1,0 +1,198 @@
+{% extends "shared/base.html" %} {% block title %}{{ item.Name }} · crunchy{%
+endblock %} {% block content %}
+<button
+    onclick="history.back()"
+    class="mb-6 text-gray-500 hover:text-gray-700 flex items-center gap-2"
+>
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="h-5 w-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+    >
+        <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M15 19l-7-7 7-7"
+        />
+    </svg>
+    <span>Back</span>
+</button>
+
+<div
+    class="flex gap-8 bg-white rounded-xl shadow-sm border border-gray-100 p-8 mb-6"
+    data-item-id="{{ item.Id }}"
+    data-item-name="{{ item.Name }}"
+>
+    <img
+        src="{{ settings.jellyfin_api_url }}/Items/{{ item.Id }}/Images/Primary?quality=80&width=400"
+        alt="{{ item.Name }}"
+        class="w-48 rounded-lg shadow"
+    />
+    <div>
+        <p
+            class="text-sm font-medium text-gray-400 uppercase tracking-wide mb-2"
+        >
+            {{ item.Type or "Item" }}
+        </p>
+        <h1 class="text-3xl font-bold mb-4">{{ item.Name }}</h1>
+        <div class="flex gap-6 text-sm text-gray-500">
+            <span
+                ><span class="font-medium text-gray-700">Year:</span> {{
+                item.ProductionYear or "Unknown" }}</span
+            >
+            <span
+                ><span class="font-medium text-gray-700">Type:</span> {{
+                item.Type or "Item" }}</span
+            >
+        </div>
+    </div>
+</div>
+
+{% if children %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 mb-6">
+    <h2 class="text-xl font-semibold mb-6 text-gray-700">Contained Items</h2>
+
+    {% if children[0].type == 'Episode' %}
+    <form id="batch-download-form">
+        <div class="flex flex-wrap items-center gap-4 mb-6">
+            <label class="flex items-center gap-3 cursor-pointer">
+                <input
+                    type="checkbox"
+                    id="select-all"
+                    class="w-5 h-5 rounded text-blue-600"
+                />
+                <span class="text-gray-700">Select All</span>
+            </label>
+            <div class="flex items-center gap-3">
+                <label for="batch-preset" class="text-gray-600">Preset</label>
+                <select
+                    name="preset"
+                    id="batch-preset"
+                    class="border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                >
+                    {% for key, preset in presets.items() %}
+                    <option value="{{ key }}">{{ preset.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button
+                type="submit"
+                class="bg-blue-600 text-white px-5 py-2.5 rounded-lg hover:bg-blue-700 font-medium"
+            >
+                Download Selected
+            </button>
+        </div>
+
+        <div class="flex flex-col gap-2">
+            {% for child in children %}
+            <label
+                class="flex items-center gap-4 p-3 hover:bg-gray-50 rounded-lg cursor-pointer transition"
+            >
+                <input
+                    type="checkbox"
+                    name="item_ids"
+                    value="{{ child.id }}"
+                    data-name="{{ child.name }}"
+                    class="w-5 h-5 rounded text-blue-600"
+                />
+                <span class="text-gray-400 w-8 font-mono"
+                    >{{ child.episode_number or loop.index }}</span
+                >
+                <span class="text-gray-800 flex-1">{{ child.name }}</span>
+                {% if child.size_bytes %}
+                <span class="text-gray-400 text-sm"
+                    >{{ (child.size_bytes / 1024 / 1024)|round|int }} MB</span
+                >
+                {% endif %} {% if child.runtime_seconds %}
+                <span class="text-gray-400 text-sm"
+                    >{{ (child.runtime_seconds / 60)|int }}m</span
+                >
+                {% endif %}
+            </label>
+            {% endfor %}
+        </div>
+    </form>
+    <div id="batch-result" class="mt-6"></div>
+    {% else %}
+    <div
+        class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6"
+    >
+        {% for child in children %}
+        <article
+            class="bg-gray-50 rounded-lg overflow-hidden border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all"
+        >
+            <a href="/items/{{ child.id }}">
+                <img
+                    src="{{ child.image }}"
+                    alt="{{ child.name }}"
+                    class="w-full aspect-[2/3] object-cover"
+                    loading="lazy"
+                />
+            </a>
+            <div class="p-3">
+                <p
+                    class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1"
+                >
+                    {{ child.type or "Item" }}
+                </p>
+                <h3 class="text-sm font-semibold line-clamp-2">
+                    <a
+                        href="/items/{{ child.id }}"
+                        class="text-blue-600 hover:text-blue-700"
+                        >{{ child.name }}</a
+                    >
+                </h3>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endif %} {% if item.Type == 'Season' and not children %}
+<div
+    class="bg-amber-50 border border-amber-200 rounded-xl p-8 mb-6 text-amber-900"
+>
+    <h2 class="text-xl font-semibold mb-3">No Episodes Found</h2>
+    <p class="text-sm leading-6">
+        Jellyfin returned this season item, but did not return any episodes for
+        it. This page is empty because the upstream API returned zero episodes
+        for this specific season.
+    </p>
+</div>
+{% endif %}
+
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
+    <h2 class="text-xl font-semibold mb-6 text-gray-700">Download</h2>
+
+    <form id="download-form">
+        <input type="hidden" name="item_id" value="{{ item.Id }}" />
+        <input type="hidden" name="item_name" value="{{ item.Name }}" />
+
+        <div class="flex items-center gap-4 mb-6">
+            <label for="preset" class="text-gray-600">Preset</label>
+            <select
+                name="preset"
+                id="preset"
+                class="border border-gray-300 rounded-lg px-4 py-2.5 bg-white min-w-[200px]"
+            >
+                {% for key, preset in presets.items() %}
+                <option value="{{ key }}">{{ preset.name }}</option>
+                {% endfor %}
+            </select>
+            <button
+                type="submit"
+                class="bg-blue-600 text-white px-6 py-2.5 rounded-lg hover:bg-blue-700 font-medium"
+            >
+                Start Download
+            </button>
+        </div>
+    </form>
+
+    <div id="job-result" class="mt-4"></div>
+</div>
+{% endblock %} {% block scripts %}
+<script src="/assets/items/page.js" defer></script>
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends "shared/base.html" %} {% block title %}Jobs - crunchy{% endblock %}
+{% block content %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-xl font-semibold text-gray-700">Jobs</h2>
+        <label class="flex items-center gap-2 text-gray-500">
+            <input
+                type="checkbox"
+                id="poll-toggle"
+                checked
+                class="w-5 h-5 rounded text-blue-600"
+            />
+            Live
+        </label>
+    </div>
+
+    <div id="jobs-list">
+        <p class="text-gray-500">Loading...</p>
+    </div>
+</div>
+<script>
+    window.jobsPollIntervalMs = {{ jobs_poll_interval_ms | tojson }};
+</script>
+{% endblock %} {% block scripts %}
+<script
+    src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"
+    defer
+></script>
+<script src="/assets/jobs/page.js" defer></script>
+{% endblock %}

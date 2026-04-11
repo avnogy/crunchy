@@ -1,0 +1,235 @@
+{% extends "shared/base.html" %} {% block title %}Settings - crunchy{% endblock
+%} {% block content %}
+<form id="settings-form" class="space-y-8 max-w-4xl">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
+        <h2 class="text-xl font-semibold text-gray-700 mb-6">Jellyfin</h2>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1"
+                    >API URL</label
+                >
+                <input
+                    type="url"
+                    name="jellyfin_api_url"
+                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="https://jellyfin.example.com"
+                />
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1"
+                    >API Key</label
+                >
+                <input
+                    type="password"
+                    name="jellyfin_api_key"
+                    id="jellyfin-api-key"
+                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    autocomplete="new-password"
+                />
+                <p
+                    id="jellyfin-api-key-help"
+                    class="text-xs text-gray-500 mt-1"
+                >
+                    Leave blank to keep current
+                </p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1"
+                    >User ID</label
+                >
+                <input
+                    type="text"
+                    name="jellyfin_user_id"
+                    id="jellyfin-user-id"
+                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+            </div>
+            <div
+                id="jellyfin-required-message"
+                class="hidden text-sm text-red-600"
+            >
+                Jellyfin API key and User ID are required.
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
+        <h2 class="text-xl font-semibold text-gray-700 mb-6">Paths</h2>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1"
+                    >Temp Directory</label
+                >
+                <div class="flex gap-3">
+                    <input
+                        type="text"
+                        name="transcoding_temp_dir"
+                        class="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <button
+                        type="button"
+                        id="clear-temp-dir"
+                        class="shrink-0 px-4 py-2 rounded-lg bg-red-600 text-white border border-red-700 hover:bg-red-700 hover:border-red-800 shadow-sm font-medium"
+                    >
+                        Empty
+                    </button>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1"
+                    >Output Directory</label
+                >
+                <div class="flex gap-3">
+                    <input
+                        type="text"
+                        name="output_dir"
+                        class="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <button
+                        type="button"
+                        id="clear-output-dir"
+                        class="shrink-0 px-4 py-2 rounded-lg bg-red-600 text-white border border-red-700 hover:bg-red-700 hover:border-red-800 shadow-sm font-medium"
+                    >
+                        Empty
+                    </button>
+                </div>
+            </div>
+            <div id="paths-result" class="text-sm text-gray-500"></div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
+        <h2 class="text-xl font-semibold text-gray-700 mb-6">App</h2>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1"
+                    >App Password</label
+                >
+                <input
+                    type="password"
+                    name="app_password"
+                    id="app-password"
+                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    autocomplete="new-password"
+                />
+                <p id="app-password-help" class="text-xs text-gray-500 mt-1">
+                    Leave blank to keep current
+                </p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1"
+                    >Host</label
+                >
+                <input
+                    type="text"
+                    name="app_host"
+                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1"
+                    >Port</label
+                >
+                <input
+                    type="number"
+                    name="app_port"
+                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1"
+                    >Max Concurrent Jobs</label
+                >
+                <input
+                    type="number"
+                    name="max_concurrent_jobs"
+                    min="1"
+                    max="10"
+                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1"
+                    >Jobs Poll Interval (ms)</label
+                >
+                <input
+                    type="number"
+                    name="jobs_poll_interval_ms"
+                    min="500"
+                    step="500"
+                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <p class="text-xs text-gray-500 mt-1">
+                    How often the jobs page refreshes live job state.
+                </p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1"
+                    >Log Level</label
+                >
+                <select
+                    name="log_level"
+                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                    <option value="DEBUG">DEBUG</option>
+                    <option value="INFO">INFO</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="ERROR">ERROR</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1"
+                    >FFmpeg Flags</label
+                >
+                <input
+                    type="text"
+                    name="ffmpeg_flags"
+                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="-keyint_min 2 -g 2"
+                />
+                <p class="text-xs text-gray-500 mt-1">
+                    Space-separated flags, e.g. -keyint_min 2 -g 2
+                </p>
+                <p class="text-sm text-gray-500 mt-3">
+                    FFmpeg command preview:
+                </p>
+                <pre
+                    id="ffmpeg-preview"
+                    class="bg-gray-800 text-green-400 text-xs p-4 rounded-lg overflow-x-auto font-mono mt-1"
+                ></pre>
+            </div>
+        </div>
+    </div>
+
+    <div
+        id="presets-section"
+        class="bg-white rounded-xl shadow-sm border border-gray-100 p-8"
+    >
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-semibold text-gray-700">
+                Transcoding Presets
+            </h2>
+            <button
+                type="button"
+                id="add-preset"
+                class="text-blue-600 hover:text-blue-700 font-medium"
+            >
+                + Add
+            </button>
+        </div>
+        <div id="presets-list" class="space-y-4"></div>
+    </div>
+
+    <div class="flex justify-end gap-4">
+        <div id="save-result" class="text-sm self-center"></div>
+        <button
+            type="submit"
+            class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-medium"
+        >
+            Save
+        </button>
+    </div>
+</form>
+{% endblock %} {% block scripts %}
+<script src="/assets/settings/page.js" defer></script>
+{% endblock %}

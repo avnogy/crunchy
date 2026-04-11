@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{% block title %}crunchy{% endblock %}</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        {% block head %}{% endblock %}
+    </head>
+    <body class="bg-gray-50 min-h-screen text-gray-800">
+        <div class="max-w-6xl mx-auto px-6 py-8">
+            <header class="flex justify-between items-center mb-8">
+                <h1 class="text-3xl font-bold text-gray-900">
+                    <a href="/" class="hover:text-blue-600">crunchy</a>
+                </h1>
+                <nav class="flex gap-6">
+                    <a
+                        href="/"
+                        class="{% if active_page == 'home' %}text-gray-900{% else %}text-blue-600 hover:text-blue-700{% endif %} font-medium"
+                    >
+                        Library
+                    </a>
+                    <a
+                        href="/jobs"
+                        class="{% if active_page == 'jobs' %}text-gray-900{% else %}text-blue-600 hover:text-blue-700{% endif %} font-medium"
+                    >
+                        Jobs
+                    </a>
+                    <a
+                        href="/settings"
+                        class="{% if active_page == 'settings' %}text-gray-900{% else %}text-blue-600 hover:text-blue-700{% endif %} font-medium"
+                    >
+                        Settings
+                    </a>
+                </nav>
+            </header>
+
+            {% block content %}{% endblock %}
+        </div>
+        {% block scripts %}{% endblock %}
+    </body>
+</html>
