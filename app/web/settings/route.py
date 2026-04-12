@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import save_settings
 from app.logging import setup_logging
+from app.presets import PRESET_TRANSCODE_DEFAULTS
 from app.transcode import get_ffmpeg_command
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,7 @@ async def get_settings(request: Request):
     data["app_password"] = ""
     data["app_password_length"] = len(settings.app_password or "")
     data["presets"] = presets
+    data["preset_transcode_defaults"] = PRESET_TRANSCODE_DEFAULTS
     return JSONResponse({"settings": data})
 
 

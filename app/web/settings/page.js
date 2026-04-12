@@ -1,63 +1,17 @@
-const DEFAULT_PRESETS = {
-  "480p-low": {
-    maxHeight: 480,
-    videoBitrate: 800000,
-    audioBitrate: 64000,
-    name: "480p Low",
-  },
-  "480p-medium": {
-    maxHeight: 480,
-    videoBitrate: 1200000,
-    audioBitrate: 96000,
-    name: "480p Medium",
-  },
-  "480p-high": {
-    maxHeight: 480,
-    videoBitrate: 1600000,
-    audioBitrate: 128000,
-    name: "480p High",
-  },
-  "720p-low": {
-    maxHeight: 720,
-    videoBitrate: 1400000,
-    audioBitrate: 96000,
-    name: "720p Low",
-  },
-  "720p-medium": {
-    maxHeight: 720,
-    videoBitrate: 2000000,
-    audioBitrate: 128000,
-    name: "720p Medium",
-  },
-  "720p-high": {
-    maxHeight: 720,
-    videoBitrate: 2800000,
-    audioBitrate: 128000,
-    name: "720p High",
-  },
-  "1080p-low": {
-    maxHeight: 1080,
-    videoBitrate: 2600000,
-    audioBitrate: 96000,
-    name: "1080p Low",
-  },
-  "1080p-medium": {
-    maxHeight: 1080,
-    videoBitrate: 3600000,
-    audioBitrate: 128000,
-    name: "1080p Medium",
-  },
-  "1080p-high": {
-    maxHeight: 1080,
-    videoBitrate: 5000000,
-    audioBitrate: 160000,
-    name: "1080p High",
-  },
+const PRESET_BASE_DEFAULTS = {
+  maxHeight: 0,
+  videoBitrate: 0,
+  audioBitrate: 0,
+  name: "",
 };
-
-let presets = { ...DEFAULT_PRESETS };
+let presetTranscodeDefaults = {};
+let presets = {};
 let storedApiKeyLength = 0;
 let storedAppPasswordLength = 0;
+
+function withPresetDefaults(preset = {}) {
+  return { ...PRESET_BASE_DEFAULTS, ...presetTranscodeDefaults, ...preset };
+}
 
 function setFieldInvalid(input, invalid) {
   if (!input) {
@@ -149,15 +103,22 @@ function renderPresets() {
   container.innerHTML = "";
 
   Object.entries(presets).forEach(([key, preset]) => {
+    const completePreset = withPresetDefaults(preset);
+    presets[key] = completePreset;
     const div = document.createElement("div");
     div.className = "flex gap-4 items-start p-4 bg-gray-50 rounded-lg";
     div.innerHTML = `
             <div class="flex-1 space-y-2">
-                <input type="text" data-preset-key="${key}" data-field="name" value="${preset.name}" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Name">
+                <input type="text" data-preset-key="${key}" data-field="name" value="${completePreset.name}" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Name">
                 <div class="grid grid-cols-3 gap-2">
-                    <input type="number" data-preset-key="${key}" data-field="maxHeight" value="${preset.maxHeight}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Height">
-                    <input type="number" data-preset-key="${key}" data-field="videoBitrate" value="${preset.videoBitrate}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Video bitrate">
-                    <input type="number" data-preset-key="${key}" data-field="audioBitrate" value="${preset.audioBitrate}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Audio bitrate">
+                    <input type="number" data-preset-key="${key}" data-field="maxHeight" value="${completePreset.maxHeight}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Height">
+                    <input type="number" data-preset-key="${key}" data-field="videoBitrate" value="${completePreset.videoBitrate}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Video bitrate">
+                    <input type="number" data-preset-key="${key}" data-field="audioBitrate" value="${completePreset.audioBitrate}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Audio bitrate">
+                </div>
+                <div class="grid grid-cols-3 gap-2">
+                    <input type="text" data-preset-key="${key}" data-field="videoCodec" value="${completePreset.videoCodec}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Video codec">
+                    <input type="text" data-preset-key="${key}" data-field="audioCodec" value="${completePreset.audioCodec}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Audio codec">
+                    <input type="text" data-preset-key="${key}" data-field="segmentContainer" value="${completePreset.segmentContainer}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Segment container">
                 </div>
             </div>
             <button type="button" data-delete="${key}" class="text-red-600 hover:text-red-700 p-2">×</button>
@@ -187,12 +148,12 @@ function renderPresets() {
 
 document.getElementById("add-preset")?.addEventListener("click", () => {
   const key = "custom-" + Date.now().toString(36);
-  presets[key] = {
+  presets[key] = withPresetDefaults({
     maxHeight: 720,
     videoBitrate: 1400000,
     audioBitrate: 128000,
     name: "Custom",
-  };
+  });
   renderPresets();
 });
 
@@ -202,6 +163,7 @@ async function loadSettings() {
     if (!resp.ok) throw new Error("Failed");
     const data = await resp.json();
     const settings = data.settings;
+    presetTranscodeDefaults = settings.preset_transcode_defaults || {};
     storedApiKeyLength = Number(settings.jellyfin_api_key_length) || 0;
     storedAppPasswordLength = Number(settings.app_password_length) || 0;
 
@@ -209,7 +171,12 @@ async function loadSettings() {
       const input = document.querySelector(`[name="${key}"]`);
       if (input) {
         if (key === "presets") {
-          presets = settings.presets || {};
+          presets = Object.fromEntries(
+            Object.entries(settings.presets || {}).map(([presetKey, preset]) => [
+              presetKey,
+              withPresetDefaults(preset),
+            ]),
+          );
           renderPresets();
         } else if (key === "ffmpeg_flags" && Array.isArray(settings[key])) {
           input.value = settings[key].join(" ");

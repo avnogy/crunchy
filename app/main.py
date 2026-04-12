@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from app.auth import require_basic_auth
 from app.config import ensure_app_password, load_settings
 from app.logging import setup_logging
+from app.presets import DEFAULT_PRESETS
 from app.transcode import run_job
 from app.web.home import router as home_router
 from app.web.items import router as items_router
@@ -25,63 +26,6 @@ logger = logging.getLogger(__name__)
 ensure_app_password(settings)
 settings.transcoding_temp_dir.mkdir(parents=True, exist_ok=True)
 settings.output_dir.mkdir(parents=True, exist_ok=True)
-
-DEFAULT_PRESETS = {
-    "480p-low": {
-        "maxHeight": 480,
-        "videoBitrate": 800000,
-        "audioBitrate": 64000,
-        "name": "480p Low",
-    },
-    "480p-medium": {
-        "maxHeight": 480,
-        "videoBitrate": 1200000,
-        "audioBitrate": 96000,
-        "name": "480p Medium",
-    },
-    "480p-high": {
-        "maxHeight": 480,
-        "videoBitrate": 1600000,
-        "audioBitrate": 128000,
-        "name": "480p High",
-    },
-    "720p-low": {
-        "maxHeight": 720,
-        "videoBitrate": 1400000,
-        "audioBitrate": 96000,
-        "name": "720p Low",
-    },
-    "720p-medium": {
-        "maxHeight": 720,
-        "videoBitrate": 2000000,
-        "audioBitrate": 128000,
-        "name": "720p Medium",
-    },
-    "720p-high": {
-        "maxHeight": 720,
-        "videoBitrate": 2800000,
-        "audioBitrate": 128000,
-        "name": "720p High",
-    },
-    "1080p-low": {
-        "maxHeight": 1080,
-        "videoBitrate": 2600000,
-        "audioBitrate": 96000,
-        "name": "1080p Low",
-    },
-    "1080p-medium": {
-        "maxHeight": 1080,
-        "videoBitrate": 3600000,
-        "audioBitrate": 128000,
-        "name": "1080p Medium",
-    },
-    "1080p-high": {
-        "maxHeight": 1080,
-        "videoBitrate": 5000000,
-        "audioBitrate": 160000,
-        "name": "1080p High",
-    },
-}
 
 job_queue: asyncio.Queue = asyncio.Queue()
 templates = Jinja2Templates(directory="app/web")

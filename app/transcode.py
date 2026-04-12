@@ -15,6 +15,7 @@ from pathvalidate import sanitize_filename
 from app.config import Settings
 from app.jellyfin import JellyfinClient
 from app.jobs import Job, JobState
+from app.presets import PRESET_TRANSCODE_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +75,18 @@ def _build_transcode_url(settings: Settings, job: Job, source_id: str) -> str:
         "api_key": settings.jellyfin_api_key,
         "playSessionId": str(uuid.uuid4()),
         "mediaSourceId": source_id,
-        "videoCodec": "h264",
-        "audioCodec": "aac",
+        "videoCodec": job.preset.get(
+            "videoCodec", PRESET_TRANSCODE_DEFAULTS["videoCodec"]
+        ),
+        "audioCodec": job.preset.get(
+            "audioCodec", PRESET_TRANSCODE_DEFAULTS["audioCodec"]
+        ),
         "videoBitrate": str(job.preset.get("videoBitrate", 0)),
         "audioBitrate": str(job.preset.get("audioBitrate", 0)),
         "maxHeight": str(job.preset.get("maxHeight", 0)),
-        "segmentContainer": "ts",
+        "segmentContainer": job.preset.get(
+            "segmentContainer", PRESET_TRANSCODE_DEFAULTS["segmentContainer"]
+        ),
         "transcodeReasons": "ContainerNotSupported",
     }
     return f"{url}?{urlencode(params)}"
