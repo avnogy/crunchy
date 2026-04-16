@@ -1,21 +1,53 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from copy import deepcopy
+from typing import Any
+
 PRESET_TRANSCODE_DEFAULTS = {
     "videoCodec": "h265",
     "audioCodec": "aac",
     "segmentContainer": "mp4",
 }
 
+NEW_PRESET_TEMPLATE = {
+    "maxHeight": 720,
+    "videoBitrate": 1400000,
+    "audioBitrate": 128000,
+    "name": "Custom",
+    **PRESET_TRANSCODE_DEFAULTS,
+}
 
-def with_preset_defaults(preset: dict | None = None) -> dict:
-    return {**PRESET_TRANSCODE_DEFAULTS, **(preset or {})}
+Preset = dict[str, Any]
+PresetCollection = dict[str, Preset]
 
 
-def normalize_presets(presets: dict | None) -> dict:
+def with_preset_defaults(preset: Mapping[str, Any] | None = None) -> Preset:
+    if not isinstance(preset, Mapping):
+        preset = {}
+
+    merged: Preset = {**PRESET_TRANSCODE_DEFAULTS, **preset}
+    for key, default in PRESET_TRANSCODE_DEFAULTS.items():
+        value = merged.get(key)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            merged[key] = default
+    return merged
+
+
+def normalize_presets(presets: Mapping[str, Any] | None) -> PresetCollection:
+    if not isinstance(presets, Mapping):
+        return {}
+
     return {
         key: with_preset_defaults(preset)
-        for key, preset in (presets or {}).items()
+        for key, preset in presets.items()
+        if isinstance(key, str)
     }
+
+
+def get_effective_presets(presets: Mapping[str, Any] | None) -> PresetCollection:
+    normalized = normalize_presets(presets)
+    return normalized or deepcopy(DEFAULT_PRESETS)
 
 DEFAULT_PRESETS = {
     "480p-low": {
