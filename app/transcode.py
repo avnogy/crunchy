@@ -121,13 +121,30 @@ def _read_progress_from_file(progress_file: Path, job: Job) -> None:
                     with open(progress_file, "r") as f:
                         content = f.read()
                         lines = content.split("\n")
+                        progress_updated = False
                         for line in lines:
                             if line.startswith("out_time="):
                                 out_time = line.split("=")[1].strip()
                                 if out_time and out_time != last_out_time:
                                     job.progress["current"] = out_time
                                     last_out_time = out_time
+                                    progress_updated = True
+                            elif line.startswith("progress="):
+                                # Check if progress is finished
+                                progress_state = line.split("=")[1].strip()
+                                if progress_state == "end":
                                     break
+
+                        # If we didn't find a new out_time but the file exists, 
+                        # it might mean ffmpeg is still processing
+                        if not progress_updated and lines:
+                            # Try to parse any speed information
+                            for line in lines:
+                                if line.startswith("speed="):
+                                    speed = line.split("=")[1].strip()
+                                    if speed and speed != "0x":
+                                        job.speed = speed
+                                        break
 
                 time.sleep(1)
             except Exception as e:
