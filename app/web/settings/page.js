@@ -1,17 +1,15 @@
-const PRESET_BASE_DEFAULTS = {
+const EMPTY_PRESET = {
   maxHeight: 0,
   videoBitrate: 0,
   audioBitrate: 0,
   name: "",
+  videoCodec: "",
+  audioCodec: "",
+  segmentContainer: "",
 };
-let presetTranscodeDefaults = {};
 let presets = {};
 let storedApiKeyLength = 0;
 let storedAppPasswordLength = 0;
-
-function withPresetDefaults(preset = {}) {
-  return { ...PRESET_BASE_DEFAULTS, ...presetTranscodeDefaults, ...preset };
-}
 
 function setFieldInvalid(input, invalid) {
   if (!input) {
@@ -103,22 +101,21 @@ function renderPresets() {
   container.innerHTML = "";
 
   Object.entries(presets).forEach(([key, preset]) => {
-    const completePreset = withPresetDefaults(preset);
-    presets[key] = completePreset;
+    const displayPreset = { ...EMPTY_PRESET, ...preset };
     const div = document.createElement("div");
     div.className = "flex gap-4 items-start p-4 bg-gray-50 rounded-lg";
     div.innerHTML = `
             <div class="flex-1 space-y-2">
-                <input type="text" data-preset-key="${key}" data-field="name" value="${completePreset.name}" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Name">
+                <input type="text" data-preset-key="${key}" data-field="name" value="${displayPreset.name}" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Name">
                 <div class="grid grid-cols-3 gap-2">
-                    <input type="number" data-preset-key="${key}" data-field="maxHeight" value="${completePreset.maxHeight}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Height">
-                    <input type="number" data-preset-key="${key}" data-field="videoBitrate" value="${completePreset.videoBitrate}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Video bitrate">
-                    <input type="number" data-preset-key="${key}" data-field="audioBitrate" value="${completePreset.audioBitrate}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Audio bitrate">
+                    <input type="number" data-preset-key="${key}" data-field="maxHeight" value="${displayPreset.maxHeight}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Height">
+                    <input type="number" data-preset-key="${key}" data-field="videoBitrate" value="${displayPreset.videoBitrate}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Video bitrate">
+                    <input type="number" data-preset-key="${key}" data-field="audioBitrate" value="${displayPreset.audioBitrate}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Audio bitrate">
                 </div>
                 <div class="grid grid-cols-3 gap-2">
-                    <input type="text" data-preset-key="${key}" data-field="videoCodec" value="${completePreset.videoCodec}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Video codec">
-                    <input type="text" data-preset-key="${key}" data-field="audioCodec" value="${completePreset.audioCodec}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Audio codec">
-                    <input type="text" data-preset-key="${key}" data-field="segmentContainer" value="${completePreset.segmentContainer}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Segment container">
+                    <input type="text" data-preset-key="${key}" data-field="videoCodec" value="${displayPreset.videoCodec}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Video codec">
+                    <input type="text" data-preset-key="${key}" data-field="audioCodec" value="${displayPreset.audioCodec}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Audio codec">
+                    <input type="text" data-preset-key="${key}" data-field="segmentContainer" value="${displayPreset.segmentContainer}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Segment container">
                 </div>
             </div>
             <button type="button" data-delete="${key}" class="text-red-600 hover:text-red-700 p-2">×</button>
@@ -148,12 +145,12 @@ function renderPresets() {
 
 document.getElementById("add-preset")?.addEventListener("click", () => {
   const key = "custom-" + Date.now().toString(36);
-  presets[key] = withPresetDefaults({
+  presets[key] = {
     maxHeight: 720,
     videoBitrate: 1400000,
     audioBitrate: 128000,
     name: "Custom",
-  });
+  };
   renderPresets();
 });
 
@@ -163,7 +160,6 @@ async function loadSettings() {
     if (!resp.ok) throw new Error("Failed");
     const data = await resp.json();
     const settings = data.settings;
-    presetTranscodeDefaults = settings.preset_transcode_defaults || {};
     storedApiKeyLength = Number(settings.jellyfin_api_key_length) || 0;
     storedAppPasswordLength = Number(settings.app_password_length) || 0;
 
@@ -171,12 +167,7 @@ async function loadSettings() {
       const input = document.querySelector(`[name="${key}"]`);
       if (input) {
         if (key === "presets") {
-          presets = Object.fromEntries(
-            Object.entries(settings.presets || {}).map(([presetKey, preset]) => [
-              presetKey,
-              withPresetDefaults(preset),
-            ]),
-          );
+          presets = settings.presets || {};
           renderPresets();
         } else if (key === "ffmpeg_flags" && Array.isArray(settings[key])) {
           input.value = settings[key].join(" ");
@@ -256,6 +247,7 @@ document
       });
       if (resp.ok) {
         const saved = await resp.json();
+        presets = saved?.settings?.presets || presets;
         storedApiKeyLength =
           Number(saved?.settings?.jellyfin_api_key_length) ||
           storedApiKeyLength;
@@ -287,6 +279,7 @@ document
         if (appPasswordHelp) {
           appPasswordHelp.textContent = `Leave blank to keep current (${storedAppPasswordLength} chars set)`;
         }
+        renderPresets();
       } else {
         result.textContent = "Error saving";
         result.className = "text-sm text-red-600";

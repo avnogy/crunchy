@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import save_settings
 from app.logging import setup_logging
-from app.presets import PRESET_TRANSCODE_DEFAULTS
+from app.presets import normalize_presets
 from app.transcode import get_ffmpeg_command
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,6 @@ async def get_settings(request: Request):
     data["app_password"] = ""
     data["app_password_length"] = len(settings.app_password or "")
     data["presets"] = presets
-    data["preset_transcode_defaults"] = PRESET_TRANSCODE_DEFAULTS
     return JSONResponse({"settings": data})
 
 
@@ -168,7 +167,7 @@ async def update_settings(request: Request, data: dict):
         logger.warning("Warning logging remains enabled")
     if "presets" in data:
         settings.presets = data["presets"]
-        request.app.state.presets = data["presets"]
+        request.app.state.presets = normalize_presets(data["presets"])
     if "ffmpeg_flags" in data:
         # Validate flags: disallow options that would override hard‑coded parts of the command
         reserved = {
@@ -207,6 +206,7 @@ async def update_settings(request: Request, data: dict):
     response_settings["jellyfin_api_key_length"] = len(settings.jellyfin_api_key or "")
     response_settings["app_password"] = ""
     response_settings["app_password_length"] = len(settings.app_password or "")
+    response_settings["presets"] = request.app.state.presets
     return JSONResponse({"settings": response_settings})
 
 

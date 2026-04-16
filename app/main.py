@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 from app.auth import require_basic_auth
 from app.config import ensure_app_password, load_settings
 from app.logging import setup_logging
-from app.presets import DEFAULT_PRESETS
+from app.presets import DEFAULT_PRESETS, normalize_presets
 from app.transcode import run_job
 from app.web.home import router as home_router
 from app.web.items import router as items_router
@@ -61,7 +61,7 @@ app = FastAPI(
     openapi_url=None,
 )
 app.state.settings = settings
-app.state.presets = settings.presets or DEFAULT_PRESETS
+app.state.presets = normalize_presets(settings.presets) or DEFAULT_PRESETS
 app.state.job_queue = job_queue
 app.state.templates = templates
 

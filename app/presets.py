@@ -6,6 +6,17 @@ PRESET_TRANSCODE_DEFAULTS = {
     "segmentContainer": "mp4",
 }
 
+
+def with_preset_defaults(preset: dict | None = None) -> dict:
+    return {**PRESET_TRANSCODE_DEFAULTS, **(preset or {})}
+
+
+def normalize_presets(presets: dict | None) -> dict:
+    return {
+        key: with_preset_defaults(preset)
+        for key, preset in (presets or {}).items()
+    }
+
 DEFAULT_PRESETS = {
     "480p-low": {
         "maxHeight": 480,
