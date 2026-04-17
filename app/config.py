@@ -96,6 +96,9 @@ def save_settings(settings: Settings) -> None:
     path = _get_settings_path()
     data = settings.model_dump()
     data["app_password"] = settings.app_password
+    for key, value in data.items():
+        if isinstance(value, Path):
+            data[key] = str(value)
     serialized = json.dumps(data, indent=2)
     temp_path: Path | None = None
     try:

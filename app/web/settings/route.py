@@ -47,6 +47,9 @@ FFMPEG_RESERVED_FLAGS = {
 
 def build_settings_response(settings: Settings, presets: dict) -> dict:
     data = settings.model_dump()
+    for key, value in data.items():
+        if isinstance(value, Path):
+            data[key] = str(value)
     data["jellyfin_api_key"] = ""
     data["jellyfin_api_key_length"] = len(settings.jellyfin_api_key or "")
     data["app_password"] = ""
