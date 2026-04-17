@@ -9,7 +9,7 @@ from pathvalidate import sanitize_filename
 from app.config import Settings
 from app.jellyfin import JellyfinClient
 from app.jobs import Job, RedisJobStore
-from app.presets import PRESET_TRANSCODE_DEFAULTS, with_preset_defaults
+from app.presets import Preset
 
 logger = logging.getLogger(__name__)
 
@@ -29,23 +29,23 @@ def get_ffmpeg_command(
     output_path: str = "/data/output/output.mp4",
     preset: dict | None = None,
 ) -> list[str]:
-    resolved_preset = with_preset_defaults(preset)
+    resolved = Preset(**(preset or {}))
     args = [
         "ffmpeg",
         "-y",
         "-i",
         input_url,
         "-c:v",
-        resolved_preset["videoCodec"],
+        resolved.videoCodec,
         "-c:a",
-        resolved_preset["audioCodec"],
+        resolved.audioCodec,
         "-movflags",
         "+faststart",
     ]
 
-    video_bitrate = int(resolved_preset.get("videoBitrate", 0) or 0)
-    audio_bitrate = int(resolved_preset.get("audioBitrate", 0) or 0)
-    max_height = int(resolved_preset.get("maxHeight", 0) or 0)
+    video_bitrate = resolved.videoBitrate
+    audio_bitrate = resolved.audioBitrate
+    max_height = resolved.maxHeight
 
     if video_bitrate > 0:
         args.extend(["-b:v", str(video_bitrate)])
@@ -61,22 +61,17 @@ def get_ffmpeg_command(
 
 def _build_transcode_url(settings: Settings, job: Job, source_id: str) -> str:
     url = f"{settings.jellyfin_api_url}/Videos/{job.item_id}/main.m3u8"
+    preset = Preset(**job.preset)
     params = {
         "api_key": settings.jellyfin_api_key,
         "playSessionId": job.id,
         "mediaSourceId": source_id,
-        "videoCodec": job.preset.get(
-            "videoCodec", PRESET_TRANSCODE_DEFAULTS["videoCodec"]
-        ),
-        "audioCodec": job.preset.get(
-            "audioCodec", PRESET_TRANSCODE_DEFAULTS["audioCodec"]
-        ),
-        "videoBitrate": str(job.preset.get("videoBitrate", 0)),
-        "audioBitrate": str(job.preset.get("audioBitrate", 0)),
-        "maxHeight": str(job.preset.get("maxHeight", 0)),
-        "segmentContainer": job.preset.get(
-            "segmentContainer", PRESET_TRANSCODE_DEFAULTS["segmentContainer"]
-        ),
+        "videoCodec": preset.videoCodec,
+        "audioCodec": preset.audioCodec,
+        "videoBitrate": str(preset.videoBitrate),
+        "audioBitrate": str(preset.audioBitrate),
+        "maxHeight": str(preset.maxHeight),
+        "segmentContainer": preset.segmentContainer,
         "transcodeReasons": "ContainerNotSupported",
     }
     return f"{url}?{urlencode(params)}"

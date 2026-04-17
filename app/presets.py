@@ -2,78 +2,37 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
+
+from pydantic import BaseModel
 from typing import Any
 
-PRESET_TRANSCODE_DEFAULTS = {
-    "videoCodec": "h265",
-    "audioCodec": "aac",
-    "segmentContainer": "mp4",
-}
 
-NEW_PRESET_TEMPLATE = {
-    "maxHeight": 720,
-    "videoBitrate": 1400000,
-    "audioBitrate": 128000,
-    "name": "Custom",
-    **PRESET_TRANSCODE_DEFAULTS,
-}
-PRESET_LEVELS = {
-    "480p": {
-        "low": (800000, 64000),
-        "medium": (1200000, 96000),
-        "high": (1600000, 128000),
-    },
-    "720p": {
-        "low": (1400000, 96000),
-        "medium": (2000000, 128000),
-        "high": (2800000, 128000),
-    },
-    "1080p": {
-        "low": (2600000, 96000),
-        "medium": (3600000, 128000),
-        "high": (5000000, 160000),
-    },
-}
-
-Preset = dict[str, Any]
-PresetCollection = dict[str, Preset]
+class Preset(BaseModel):
+    videoCodec: str = "h265"
+    audioCodec: str = "aac"
+    segmentContainer: str = "mp4"
+    maxHeight: int = 720
+    videoBitrate: int = 1400000
+    audioBitrate: int = 128000
+    name: str = "Custom"
 
 
-def with_preset_defaults(preset: Mapping[str, Any] | None = None) -> Preset:
-    if not isinstance(preset, Mapping):
-        preset = {}
-
-    merged: Preset = {**PRESET_TRANSCODE_DEFAULTS, **preset}
-    for key, default in PRESET_TRANSCODE_DEFAULTS.items():
-        value = merged.get(key)
-        if value is None or (isinstance(value, str) and not value.strip()):
-            merged[key] = default
-    return merged
-
-
-def normalize_presets(presets: Mapping[str, Any] | None) -> PresetCollection:
+def get_effective_presets(presets: Mapping[str, Any] | None = None) -> dict[str, dict[str, Any]]:
     if not isinstance(presets, Mapping):
-        return {}
-
-    return {
-        key: with_preset_defaults(preset)
-        for key, preset in presets.items()
-        if isinstance(key, str)
-    }
+        return deepcopy(DEFAULT_PRESETS)
+    return {k: Preset(**p).model_dump() for k, p in presets.items() if isinstance(k, str)} or deepcopy(DEFAULT_PRESETS)
 
 
-def get_effective_presets(presets: Mapping[str, Any] | None) -> PresetCollection:
-    normalized = normalize_presets(presets)
-    return normalized or deepcopy(DEFAULT_PRESETS)
+NEW_PRESET_TEMPLATE: dict[str, Any] = Preset().model_dump()
 
-DEFAULT_PRESETS = {
-    f"{height}-{tier}": {
-        "maxHeight": int(height.removesuffix("p")),
-        "videoBitrate": video_bitrate,
-        "audioBitrate": audio_bitrate,
-        "name": f"{height} {tier.title()}",
-        **PRESET_TRANSCODE_DEFAULTS,
-    }
-    for height, tiers in PRESET_LEVELS.items()
-    for tier, (video_bitrate, audio_bitrate) in tiers.items()
+DEFAULT_PRESETS: dict[str, dict[str, Any]] = {
+    "480p-low": {"maxHeight": 480, "videoBitrate": 800000, "audioBitrate": 64000, "name": "480p Low", "videoCodec": "h265", "audioCodec": "aac", "segmentContainer": "mp4"},
+    "480p-medium": {"maxHeight": 480, "videoBitrate": 1200000, "audioBitrate": 96000, "name": "480p Medium", "videoCodec": "h265", "audioCodec": "aac", "segmentContainer": "mp4"},
+    "480p-high": {"maxHeight": 480, "videoBitrate": 1600000, "audioBitrate": 128000, "name": "480p High", "videoCodec": "h265", "audioCodec": "aac", "segmentContainer": "mp4"},
+    "720p-low": {"maxHeight": 720, "videoBitrate": 1400000, "audioBitrate": 96000, "name": "720p Low", "videoCodec": "h265", "audioCodec": "aac", "segmentContainer": "mp4"},
+    "720p-medium": {"maxHeight": 720, "videoBitrate": 2000000, "audioBitrate": 128000, "name": "720p Medium", "videoCodec": "h265", "audioCodec": "aac", "segmentContainer": "mp4"},
+    "720p-high": {"maxHeight": 720, "videoBitrate": 2800000, "audioBitrate": 128000, "name": "720p High", "videoCodec": "h265", "audioCodec": "aac", "segmentContainer": "mp4"},
+    "1080p-low": {"maxHeight": 1080, "videoBitrate": 2600000, "audioBitrate": 96000, "name": "1080p Low", "videoCodec": "h265", "audioCodec": "aac", "segmentContainer": "mp4"},
+    "1080p-medium": {"maxHeight": 1080, "videoBitrate": 3600000, "audioBitrate": 128000, "name": "1080p Medium", "videoCodec": "h265", "audioCodec": "aac", "segmentContainer": "mp4"},
+    "1080p-high": {"maxHeight": 1080, "videoBitrate": 5000000, "audioBitrate": 160000, "name": "1080p High", "videoCodec": "h265", "audioCodec": "aac", "segmentContainer": "mp4"},
 }
