@@ -9,7 +9,7 @@ from typing import Any
 import redis
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pathvalidate import is_valid_filepath
+from pathvalidate import is_valid_filename
 
 from app.config import Settings, save_settings
 from app.jobs import get_redis_client
@@ -66,7 +66,7 @@ def validate_managed_directory(path_value: str, field_name: str) -> Path:
             status_code=400, detail=f"{field_name} must be an absolute path"
         )
 
-    if not is_valid_filepath(path):
+    if not is_valid_filename(path.name, platform="linux"):
         raise HTTPException(
             status_code=400, detail=f"{field_name} contains invalid characters"
         )
