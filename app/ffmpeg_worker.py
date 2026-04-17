@@ -55,7 +55,7 @@ def _run_job(store: RedisJobStore, settings, job_data: dict[str, Any]) -> None:
         settings,
         input_url=job_data["input_url"],
         output_path=str(output_path),
-        preset=job_data.get("preset"),
+        preset=job.preset,
     )
     logger.info("Running job %s -> %s", job_id, output_path)
 

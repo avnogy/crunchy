@@ -74,13 +74,7 @@ class RedisJobStore:
         return Job.model_validate_json(data) if data else None
 
     def list(self) -> list[Job]:
-        job_ids = self.client.lrange(JOB_IDS_KEY, 0, -1)
-        jobs: list[Job] = []
-        for current_job_id in job_ids:
-            job = self.get(current_job_id)
-            if job:
-                jobs.append(job)
-        return jobs
+        return [job for job in (self.get(jid) for jid in self.client.lrange(JOB_IDS_KEY, 0, -1)) if job]
 
     def find_reusable_by_item_and_preset(
         self, item_id: str, preset: dict[str, Any]
