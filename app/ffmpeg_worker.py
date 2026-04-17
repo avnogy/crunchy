@@ -5,6 +5,8 @@ import subprocess
 import time
 from pathlib import Path
 
+import redis
+
 from app.config import load_settings
 from app.jobs import JOB_QUEUE_KEY, Job, JobState, RedisJobStore, utcnow_iso, get_redis_client
 from app.transcode import build_output_path, get_ffmpeg_command
@@ -127,22 +129,37 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    client = get_redis_client(settings)
-    client.ping()
-    store = RedisJobStore(client)
-
     logger.info(
-        "Starting ffmpeg worker with Redis at %s:%s",
+        "Starting ffmpeg worker, Redis at %s:%s",
         settings.redis_host,
         settings.redis_port,
     )
+
     while True:
-        _, payload = client.blpop(JOB_QUEUE_KEY, timeout=0)
         try:
-            job = Job.model_validate_json(payload)
-            _run_job(store, settings, job)
-        except Exception as exc:
-            logger.exception("Worker failed to process job: %s", exc)
+            client = get_redis_client(settings)
+            client.ping()
+            store = RedisJobStore(client)
+            logger.info("Connected to Redis at %s:%s", settings.redis_host, settings.redis_port)
+
+            while True:
+                try:
+                    _, payload = client.blpop(JOB_QUEUE_KEY, timeout=0)
+                    job = Job.model_validate_json(payload)
+                    _run_job(store, settings, job)
+                except redis.ConnectionError:
+                    logger.warning("Lost connection to Redis, reconnecting...")
+                    break
+                except Exception as exc:
+                    logger.exception("Worker failed to process job: %s", exc)
+
+        except redis.ConnectionError as e:
+            logger.warning("Could not connect to Redis at %s:%s: %s", settings.redis_host, settings.redis_port, e)
+            logger.info("Retrying in 5 seconds...")
+            time.sleep(5)
+        except Exception as e:
+            logger.exception("Unexpected error in worker: %s", e)
+            time.sleep(5)
 
 
 if __name__ == "__main__":
