@@ -30,6 +30,8 @@ class Settings:
     log_level: str = "INFO"
     presets: dict = field(default_factory=dict)
     ffmpeg_flags: list[str] = field(default_factory=list)
+    redis_host: str = "redis"
+    redis_port: int = 6379
 
     def to_dict(self) -> dict:
         return {
@@ -45,6 +47,8 @@ class Settings:
             "log_level": self.log_level,
             "presets": self.presets,
             "ffmpeg_flags": self.ffmpeg_flags,
+            "redis_host": self.redis_host,
+            "redis_port": self.redis_port,
         }
 
     def to_persisted_dict(self) -> dict:
@@ -70,6 +74,8 @@ class Settings:
             log_level=data.get("log_level", "INFO"),
             presets=data.get("presets", {}),
             ffmpeg_flags=data.get("ffmpeg_flags", []),
+            redis_host=data.get("redis_host", os.getenv("REDIS_HOST", "redis")),
+            redis_port=int(data.get("redis_port", os.getenv("REDIS_PORT", "6379"))),
         )
 
 
@@ -108,6 +114,8 @@ def load_settings() -> Settings:
         ffmpeg_flags=os.getenv("FFMPEG_FLAGS", "").split()
         if os.getenv("FFMPEG_FLAGS")
         else [],
+        redis_host=os.getenv("REDIS_HOST", "redis"),
+        redis_port=int(os.getenv("REDIS_PORT", "6379")),
     )
 
 

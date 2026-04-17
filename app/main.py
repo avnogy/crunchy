@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,12 +12,10 @@ from app.auth import require_basic_auth
 from app.config import ensure_app_password, load_settings
 from app.logging import setup_logging
 from app.presets import get_effective_presets
-from app.transcode import run_job
 from app.web.home import router as home_router
 from app.web.items import router as items_router
 from app.web.jobs import router as jobs_router
 from app.web.settings import router as settings_router
-from app.worker import JobWorker
 
 settings = load_settings()
 setup_logging(settings.log_level)
@@ -27,7 +24,6 @@ ensure_app_password(settings)
 settings.transcoding_temp_dir.mkdir(parents=True, exist_ok=True)
 settings.output_dir.mkdir(parents=True, exist_ok=True)
 
-job_queue: asyncio.Queue = asyncio.Queue()
 templates = Jinja2Templates(directory="app/web")
 WEB_ROOT = Path(__file__).resolve().parent / "web"
 
@@ -35,22 +31,13 @@ WEB_ROOT = Path(__file__).resolve().parent / "web"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(
-        "Starting app with host=%s port=%s log_level=%s workers=%s poll_interval_ms=%s",
+        "Starting app with host=%s port=%s log_level=%s",
         settings.app_host,
         settings.app_port,
         settings.log_level,
-        settings.max_concurrent_jobs or 1,
-        settings.jobs_poll_interval_ms,
     )
-    worker = JobWorker(
-        job_queue,
-        lambda job: run_job(job, settings),
-        workers=settings.max_concurrent_jobs or 1,
-    )
-    await worker.start()
     yield
     logger.info("Stopping app")
-    await worker.stop()
 
 
 app = FastAPI(
@@ -63,7 +50,6 @@ app = FastAPI(
 app.state.settings = settings
 app.state.presets = get_effective_presets(settings.presets)
 settings.presets = app.state.presets
-app.state.job_queue = job_queue
 app.state.templates = templates
 
 
