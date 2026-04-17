@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
@@ -15,6 +16,15 @@ class JellyfinClient:
         self._url = settings.jellyfin_api_url
         self._headers = {"X-Emby-Token": settings.jellyfin_api_key}
         self._user_id = settings.jellyfin_user_id
+
+    @asynccontextmanager
+    async def _client(self):
+        async with httpx.AsyncClient(
+            base_url=self._url,
+            headers=self._headers,
+            timeout=20,
+        ) as client:
+            yield client
 
     async def get_library(self) -> dict[str, Any]:
         return await self._get(
@@ -72,9 +82,7 @@ class JellyfinClient:
 
     async def _get(self, path: str, params: dict[str, str] | None = None) -> dict:
         logger.debug("Jellyfin GET %s params=%s", path, params)
-        async with httpx.AsyncClient(
-            base_url=self._url, headers=self._headers, timeout=20
-        ) as client:
+        async with self._client() as client:
             response = await client.get(path, params=params)
             logger.debug("Jellyfin GET %s -> %s", path, response.status_code)
             response.raise_for_status()
@@ -84,9 +92,7 @@ class JellyfinClient:
 
     async def _post(self, path: str, json: dict[str, Any] | None = None) -> dict:
         logger.debug("Jellyfin POST %s", path)
-        async with httpx.AsyncClient(
-            base_url=self._url, headers=self._headers, timeout=20
-        ) as client:
+        async with self._client() as client:
             response = await client.post(path, json=json)
             logger.debug("Jellyfin POST %s -> %s", path, response.status_code)
             response.raise_for_status()
