@@ -4,10 +4,12 @@ import logging
 import shlex
 import shutil
 from pathlib import Path
+from typing import Any
 
 import redis
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pathvalidate import is_valid_filepath
 
 from app.config import Settings, save_settings
 from app.logging import setup_logging
@@ -60,6 +62,11 @@ def validate_managed_directory(path_value: str, field_name: str) -> Path:
             status_code=400, detail=f"{field_name} must be an absolute path"
         )
 
+    if not is_valid_filepath(path):
+        raise HTTPException(
+            status_code=400, detail=f"{field_name} contains invalid characters"
+        )
+
     resolved = path.resolve(strict=False)
     if resolved in EXACT_PROTECTED_DIRECTORIES or resolved in PROTECTED_SUBTREES:
         raise HTTPException(
@@ -76,13 +83,16 @@ def validate_managed_directory(path_value: str, field_name: str) -> Path:
 
 
 def clear_directory_contents(directory: Path) -> int:
-    directory.mkdir(parents=True, exist_ok=True)
+    if not directory.exists():
+        directory.mkdir(parents=True, exist_ok=True)
+        return 0
+
     removed = 0
     for child in directory.iterdir():
         if child.is_dir() and not child.is_symlink():
             shutil.rmtree(child)
         else:
-            child.unlink()
+            child.unlink(missing_ok=True)
         removed += 1
     return removed
 
