@@ -57,10 +57,6 @@ services:
       - ./output:${OUTPUT_DIR:-/data/output}
       - ./config:/config
       - ${TRANSCODING_TEMP_DIR:-/data/temp}:${TRANSCODING_TEMP_DIR:-/data/temp}
-    command:
-      - python
-      - -m
-      - app.ffmpeg_worker
     environment:
       - OUTPUT_DIR=${OUTPUT_DIR:-/data/output}
       - TRANSCODING_TEMP_DIR=${TRANSCODING_TEMP_DIR:-/data/temp}
@@ -68,6 +64,8 @@ services:
       - REDIS_PORT=6379
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - FFMPEG_FLAGS=${FFMPEG_FLAGS:-}
+    entrypoint: ["/entrypoint.sh"]
+    command: ["python", "-m", "app.ffmpeg_worker"]
     depends_on:
       - redis
     develop:

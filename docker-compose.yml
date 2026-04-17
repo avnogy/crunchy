@@ -39,7 +39,8 @@ services:
       - REDIS_PORT=6379
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - FFMPEG_FLAGS=${FFMPEG_FLAGS:-}
-    command: python -m app.ffmpeg_worker
+    entrypoint: ["/entrypoint.sh"]
+    command: ["python", "-m", "app.ffmpeg_worker"]
     depends_on:
       - redis
 
