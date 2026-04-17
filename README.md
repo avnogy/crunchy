@@ -61,4 +61,4 @@ The existing `APP_UID` and `APP_GID` behavior is preserved for both local builds
 
 ## Presets
 
-There are a few default presets for smaller mobile downloads, and they can be adjusted in the app settings.
+There are a few default presets for smaller mobile downloads, and they can be adjusted in the app settings. Each preset can define `maxHeight`, `videoBitrate`, `audioBitrate`, `videoCodec`, `audioCodec`, and `segmentContainer`; the defaults use `h265`, `aac`, and `mp4`.

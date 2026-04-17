@@ -7,8 +7,9 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from app.config import save_settings
+from app.config import Settings, save_settings
 from app.logging import setup_logging
+from app.presets import NEW_PRESET_TEMPLATE, get_effective_presets
 from app.transcode import get_ffmpeg_command
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,17 @@ PROTECTED_SUBTREES = {
     Path("/app"),
     Path("/config"),
 }
+
+
+def build_settings_response(settings: Settings, presets: dict) -> dict:
+    data = settings.to_dict()
+    data["jellyfin_api_key"] = ""
+    data["jellyfin_api_key_length"] = len(settings.jellyfin_api_key or "")
+    data["app_password"] = ""
+    data["app_password_length"] = len(settings.app_password or "")
+    data["presets"] = presets
+    data["new_preset_template"] = NEW_PRESET_TEMPLATE
+    return data
 
 
 def validate_managed_directory(path_value: str, field_name: str) -> Path:
@@ -60,14 +72,8 @@ def clear_directory_contents(directory: Path) -> int:
 @router.get("/api/settings")
 async def get_settings(request: Request):
     settings = request.app.state.settings
-    presets = request.app.state.presets
     logger.debug("Returning settings payload")
-    data = settings.to_dict()
-    data["jellyfin_api_key"] = ""
-    data["jellyfin_api_key_length"] = len(settings.jellyfin_api_key or "")
-    data["app_password"] = ""
-    data["app_password_length"] = len(settings.app_password or "")
-    data["presets"] = presets
+    data = build_settings_response(settings, request.app.state.presets)
     return JSONResponse({"settings": data})
 
 
@@ -107,9 +113,6 @@ async def ffmpeg_preview(request: Request, payload: dict):
                 status_code=400,
                 detail=f"Flag '{token}' is not allowed as it conflicts with required options",
             )
-    # Build a fresh Settings instance mirroring the existing one but with overridden flags
-    from app.config import Settings
-
     preview_settings = Settings(
         jellyfin_api_url=settings.jellyfin_api_url,
         jellyfin_api_key=settings.jellyfin_api_key,
@@ -165,8 +168,9 @@ async def update_settings(request: Request, data: dict):
         logger.debug("Debug logging is now enabled")
         logger.warning("Warning logging remains enabled")
     if "presets" in data:
-        settings.presets = data["presets"]
-        request.app.state.presets = data["presets"]
+        canonical_presets = get_effective_presets(data["presets"])
+        settings.presets = canonical_presets
+        request.app.state.presets = canonical_presets
     if "ffmpeg_flags" in data:
         # Validate flags: disallow options that would override hard‑coded parts of the command
         reserved = {
@@ -200,11 +204,7 @@ async def update_settings(request: Request, data: dict):
         settings.max_concurrent_jobs,
         settings.jobs_poll_interval_ms,
     )
-    response_settings = settings.to_dict()
-    response_settings["jellyfin_api_key"] = ""
-    response_settings["jellyfin_api_key_length"] = len(settings.jellyfin_api_key or "")
-    response_settings["app_password"] = ""
-    response_settings["app_password_length"] = len(settings.app_password or "")
+    response_settings = build_settings_response(settings, request.app.state.presets)
     return JSONResponse({"settings": response_settings})
 
 
