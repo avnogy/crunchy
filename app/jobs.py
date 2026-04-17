@@ -12,7 +12,6 @@ import redis
 
 JOB_QUEUE_KEY = "jobs:queue"
 JOB_IDS_KEY = "jobs:ids"
-JOB_KEY_PREFIX = "job:"
 
 
 class JobState(str, Enum):
@@ -86,10 +85,6 @@ def get_redis_client(host: str, port: int) -> redis.Redis:
     return redis.Redis(host=host, port=port, decode_responses=True)
 
 
-def job_key(job_id: str) -> str:
-    return f"{JOB_KEY_PREFIX}{job_id}"
-
-
 def _serialize_job(job: Job) -> dict[str, str]:
     return {
         "id": job.id,
@@ -144,14 +139,14 @@ class RedisJobStore:
 
     def add(self, job: Job, payload: dict[str, Any]) -> Job:
         pipe = self.client.pipeline()
-        pipe.hset(job_key(job.id), mapping=_serialize_job(job))
+        pipe.hset(f"job:{job.id}", mapping=_serialize_job(job))
         pipe.lpush(JOB_IDS_KEY, job.id)
         pipe.rpush(JOB_QUEUE_KEY, json.dumps(payload, sort_keys=True))
         pipe.execute()
         return job
 
     def get(self, job_id: str) -> Job | None:
-        return _deserialize_job(self.client.hgetall(job_key(job_id)))
+        return _deserialize_job(self.client.hgetall(f"job:{job_id}"))
 
     def list(self) -> list[Job]:
         job_ids = self.client.lrange(JOB_IDS_KEY, 0, -1)
@@ -193,5 +188,5 @@ class RedisJobStore:
                 updates[key] = "" if value is None else str(value)
 
         if updates:
-            self.client.hset(job_key(job_id), mapping=updates)
+            self.client.hset(f"job:{job_id}", mapping=updates)
         return self.get(job_id)

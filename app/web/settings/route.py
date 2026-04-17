@@ -112,13 +112,9 @@ async def get_ffmpeg_command_api(request: Request):
 
 @router.post("/api/ffmpeg-preview")
 async def ffmpeg_preview(request: Request, payload: dict):
-    settings = request.app.state.settings
     flags = validate_ffmpeg_flags(payload.get("ffmpeg_flags", []))
     logger.debug("Building ffmpeg preview with %d custom flag token(s)", len(flags))
-    preview_settings = Settings(
-        ffmpeg_flags=flags,
-    )
-    cmd = get_ffmpeg_command(preview_settings)
+    cmd = get_ffmpeg_command(Settings(ffmpeg_flags=flags))
     logger.debug("Returning ffmpeg preview command with %d argument(s)", len(cmd))
     return JSONResponse({"command": cmd})
 

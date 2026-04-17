@@ -13,12 +13,6 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def get_job_store(request: Request) -> RedisJobStore:
-    settings = request.app.state.settings
-    client = get_redis_client(settings.redis_host, settings.redis_port)
-    return RedisJobStore(client)
-
-
 @router.post("/api/jobs")
 async def create_job(request: Request, data: dict):
     presets = request.app.state.presets
@@ -36,7 +30,8 @@ async def create_job(request: Request, data: dict):
         raise HTTPException(status_code=400, detail="Invalid request")
 
     preset = presets[preset_key]
-    store = get_job_store(request)
+    client = get_redis_client(settings.redis_host, settings.redis_port)
+    store = RedisJobStore(client)
     existing_job = store.find_reusable_by_item_and_preset(item_id, preset)
     if existing_job:
         logger.info(
@@ -65,14 +60,18 @@ async def create_job(request: Request, data: dict):
 
 @router.get("/api/jobs")
 async def list_jobs(request: Request):
-    jobs = [j.to_dict() for j in get_job_store(request).list()]
+    settings = request.app.state.settings
+    store = RedisJobStore(get_redis_client(settings.redis_host, settings.redis_port))
+    jobs = [j.to_dict() for j in store.list()]
     logger.debug("Listing %d job(s)", len(jobs))
     return JSONResponse({"jobs": jobs})
 
 
 @router.get("/api/jobs/{job_id}")
 async def get_job(request: Request, job_id: str):
-    job = get_job_store(request).get(job_id)
+    settings = request.app.state.settings
+    store = RedisJobStore(get_redis_client(settings.redis_host, settings.redis_port))
+    job = store.get(job_id)
     if not job:
         logger.warning("Requested missing job %s", job_id)
         raise HTTPException(status_code=404, detail="Job not found")
@@ -82,7 +81,8 @@ async def get_job(request: Request, job_id: str):
 
 @router.post("/api/jobs/{job_id}/cancel")
 async def cancel_job(request: Request, job_id: str):
-    store = get_job_store(request)
+    settings = request.app.state.settings
+    store = RedisJobStore(get_redis_client(settings.redis_host, settings.redis_port))
     job = store.get(job_id)
     if not job or job.state not in (JobState.QUEUED, JobState.RUNNING):
         logger.warning("Rejecting cancel for job %s", job_id)
@@ -104,7 +104,9 @@ async def cancel_job(request: Request, job_id: str):
 
 @router.get("/api/jobs/{job_id}/download")
 async def download_job(request: Request, job_id: str):
-    job = get_job_store(request).get(job_id)
+    settings = request.app.state.settings
+    store = RedisJobStore(get_redis_client(settings.redis_host, settings.redis_port))
+    job = store.get(job_id)
     if not job or job.state != JobState.COMPLETED or not job.is_download_available():
         logger.warning(
             "Download requested for unavailable job output job_id=%s", job_id
@@ -119,7 +121,9 @@ async def download_job(request: Request, job_id: str):
 
 @router.get("/jobs/{job_id}/log")
 async def get_job_log(request: Request, job_id: str):
-    job = get_job_store(request).get(job_id)
+    settings = request.app.state.settings
+    store = RedisJobStore(get_redis_client(settings.redis_host, settings.redis_port))
+    job = store.get(job_id)
     if not job or not job.log_path or not Path(job.log_path).exists():
         logger.warning("Log requested for unavailable job %s", job_id)
         raise HTTPException(status_code=404, detail="Log not found")

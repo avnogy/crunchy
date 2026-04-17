@@ -11,10 +11,6 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-def _to_path(v):
-    return Path(v) if isinstance(v, str) else v
-
-
 @dataclass
 class Settings:
     jellyfin_api_url: str = ""
@@ -23,7 +19,6 @@ class Settings:
     app_password: str = ""
     transcoding_temp_dir: Path = Path("/data/temp")
     output_dir: Path = Path("/data/output")
-    max_concurrent_jobs: int = 1
     jobs_poll_interval_ms: int = 3000
     app_host: str = "0.0.0.0"
     app_port: int = 8000
@@ -40,7 +35,6 @@ class Settings:
             "jellyfin_user_id": self.jellyfin_user_id,
             "transcoding_temp_dir": str(self.transcoding_temp_dir),
             "output_dir": str(self.output_dir),
-            "max_concurrent_jobs": self.max_concurrent_jobs,
             "jobs_poll_interval_ms": self.jobs_poll_interval_ms,
             "app_host": self.app_host,
             "app_port": self.app_port,
@@ -63,11 +57,8 @@ class Settings:
             jellyfin_api_key=data.get("jellyfin_api_key", ""),
             jellyfin_user_id=data.get("jellyfin_user_id", ""),
             app_password=data.get("app_password", ""),
-            transcoding_temp_dir=_to_path(
-                data.get("transcoding_temp_dir", "/data/temp")
-            ),
-            output_dir=_to_path(data.get("output_dir", "/data/output")),
-            max_concurrent_jobs=int(data.get("max_concurrent_jobs", 1)),
+            transcoding_temp_dir=Path(data.get("transcoding_temp_dir", "/data/temp")),
+            output_dir=Path(data.get("output_dir", "/data/output")),
             jobs_poll_interval_ms=int(data.get("jobs_poll_interval_ms", 3000)),
             app_host=data.get("app_host", "0.0.0.0"),
             app_port=int(data.get("app_port", 8000)),
@@ -106,7 +97,6 @@ def load_settings() -> Settings:
         app_password=os.getenv("APP_PASSWORD", ""),
         transcoding_temp_dir=Path(os.getenv("TRANSCODING_TEMP_DIR", "/data/temp")),
         output_dir=Path(os.getenv("OUTPUT_DIR", "/data/output")),
-        max_concurrent_jobs=int(os.getenv("MAX_CONCURRENT_JOBS", "1")),
         jobs_poll_interval_ms=int(os.getenv("JOBS_POLL_INTERVAL_MS", "3000")),
         app_host=os.getenv("APP_HOST", "0.0.0.0"),
         app_port=int(os.getenv("APP_PORT", "8000")),
