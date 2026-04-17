@@ -225,9 +225,8 @@ async def clear_output_directory(request: Request):
 async def redis_health(request: Request):
     settings = request.app.state.settings
     try:
-        from app.jobs import get_redis_client
-
-        get_redis_client(settings.redis_host, settings.redis_port).ping()
+        client = redis.Redis(host=settings.redis_host, port=settings.redis_port, decode_responses=True)
+        client.ping()
     except redis.RedisError as exc:
         logger.warning("Redis health check failed: %s", exc)
         raise HTTPException(status_code=503, detail="Redis unavailable") from exc

@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from app.config import load_settings
-from app.jobs import JOB_QUEUE_KEY, JobState, RedisJobStore, get_redis_client, utcnow_iso
+from app.jobs import JOB_QUEUE_KEY, JobState, RedisJobStore, utcnow_iso
+import redis
 from app.transcode import get_ffmpeg_command
 
 logger = logging.getLogger(__name__)
@@ -123,7 +124,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    client = get_redis_client(settings.redis_host, settings.redis_port)
+    client = redis.Redis(host=settings.redis_host, port=settings.redis_port, decode_responses=True)
     client.ping()
     store = RedisJobStore(client)
 

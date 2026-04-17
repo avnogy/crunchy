@@ -57,10 +57,6 @@ def new_job(item_id: str, item_name: str, preset: dict[str, Any]) -> Job:
     )
 
 
-def get_redis_client(host: str, port: int) -> redis.Redis:
-    return redis.Redis(host=host, port=port, decode_responses=True)
-
-
 class RedisJobStore:
     def __init__(self, client: redis.Redis) -> None:
         self.client = client

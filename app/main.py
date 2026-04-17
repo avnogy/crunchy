@@ -49,7 +49,6 @@ app = FastAPI(
 )
 app.state.settings = settings
 app.state.presets = get_effective_presets(settings.presets)
-settings.presets = app.state.presets
 app.state.templates = templates
 
 
