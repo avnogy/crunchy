@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import shlex
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -23,12 +22,9 @@ def _safe_output_name(name: str) -> str:
     return sanitized or "job"
 
 
-def _parse_ffmpeg_flags() -> list[str]:
-    raw = os.getenv("FFMPEG_FLAGS", "")
-    return shlex.split(raw) if raw else []
-
-
-def _build_ffmpeg_args(job_data: dict[str, Any]) -> list[str]:
+def _build_ffmpeg_args(
+    job_data: dict[str, Any], ffmpeg_flags: list[str] | None = None
+) -> list[str]:
     preset = job_data.get("preset", {})
     args = [
         "ffmpeg",
@@ -54,7 +50,7 @@ def _build_ffmpeg_args(job_data: dict[str, Any]) -> list[str]:
     if max_height > 0:
         args.extend(["-vf", f"scale=-2:{max_height}"])
 
-    args.extend(_parse_ffmpeg_flags())
+    args.extend(ffmpeg_flags or [])
     args.append(job_data["output_path"])
     return args
 
@@ -97,6 +93,7 @@ def _run_job(store: RedisJobStore, job_data: dict[str, Any]) -> None:
         logger.warning("Skipping missing job %s", job_id)
         return
 
+    settings = load_settings()
     output_path = _final_output_path(job_data)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -106,7 +103,10 @@ def _run_job(store: RedisJobStore, job_data: dict[str, Any]) -> None:
         return
 
     log_path = output_path.with_suffix(".log")
-    ffmpeg_args = _build_ffmpeg_args({**job_data, "output_path": str(output_path)})
+    ffmpeg_args = _build_ffmpeg_args(
+        {**job_data, "output_path": str(output_path)},
+        settings.ffmpeg_flags,
+    )
     logger.info("Running job %s -> %s", job_id, output_path)
 
     store.update(
@@ -167,20 +167,9 @@ def _run_job(store: RedisJobStore, job_data: dict[str, Any]) -> None:
         logger.error("Job %s failed: %s", job_id, error_message)
 
 
-def main() -> None:
-    logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO"),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-    settings = load_settings()
-    client = get_redis_client(settings.redis_host, settings.redis_port)
+def _consume_queue(redis_host: str, redis_port: int) -> None:
+    client = get_redis_client(redis_host, redis_port)
     store = RedisJobStore(client)
-
-    logger.info(
-        "Starting ffmpeg worker with Redis at %s:%s",
-        settings.redis_host,
-        settings.redis_port,
-    )
 
     while True:
         job_data: dict[str, Any] | None = None
@@ -195,6 +184,38 @@ def main() -> None:
                 job_id = job_data.get("job_id")
             if job_id:
                 _mark_failed(store, job_id, str(exc))
+
+
+def main() -> None:
+    settings = load_settings()
+    logging.basicConfig(
+        level=settings.log_level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    client = get_redis_client(settings.redis_host, settings.redis_port)
+    client.ping()
+    worker_count = max(1, settings.max_concurrent_jobs)
+
+    logger.info(
+        "Starting ffmpeg worker with Redis at %s:%s workers=%s",
+        settings.redis_host,
+        settings.redis_port,
+        worker_count,
+    )
+
+    threads = [
+        threading.Thread(
+            target=_consume_queue,
+            args=(settings.redis_host, settings.redis_port),
+            name=f"ffmpeg-worker-{index + 1}",
+        )
+        for index in range(worker_count)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
 
 
 if __name__ == "__main__":

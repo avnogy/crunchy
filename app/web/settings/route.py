@@ -117,6 +117,7 @@ async def ffmpeg_preview(request: Request, payload: dict):
         jellyfin_api_url=settings.jellyfin_api_url,
         jellyfin_api_key=settings.jellyfin_api_key,
         jellyfin_user_id=settings.jellyfin_user_id,
+        app_password=settings.app_password,
         transcoding_temp_dir=settings.transcoding_temp_dir,
         output_dir=settings.output_dir,
         max_concurrent_jobs=settings.max_concurrent_jobs,
@@ -126,6 +127,8 @@ async def ffmpeg_preview(request: Request, payload: dict):
         log_level=settings.log_level,
         presets=settings.presets,
         ffmpeg_flags=flags,
+        redis_host=settings.redis_host,
+        redis_port=settings.redis_port,
     )
     cmd = get_ffmpeg_command(preview_settings)
     logger.debug("Returning ffmpeg preview command with %d argument(s)", len(cmd))
@@ -158,9 +161,13 @@ async def update_settings(request: Request, data: dict):
     if "app_port" in data and data["app_port"] is not None:
         settings.app_port = int(data["app_port"])
     if "max_concurrent_jobs" in data and data["max_concurrent_jobs"] is not None:
-        settings.max_concurrent_jobs = int(data["max_concurrent_jobs"])
+        settings.max_concurrent_jobs = max(1, int(data["max_concurrent_jobs"]))
     if data.get("jobs_poll_interval_ms") is not None:
         settings.jobs_poll_interval_ms = max(500, int(data["jobs_poll_interval_ms"]))
+    if "redis_host" in data and data["redis_host"]:
+        settings.redis_host = str(data["redis_host"]).strip()
+    if "redis_port" in data and data["redis_port"] is not None:
+        settings.redis_port = int(data["redis_port"])
     if "log_level" in data and data["log_level"]:
         settings.log_level = data["log_level"]
         setup_logging(data["log_level"])

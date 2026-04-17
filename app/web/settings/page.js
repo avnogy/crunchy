@@ -218,6 +218,8 @@ document
         500,
         parseInt(formData.get("jobs_poll_interval_ms"), 10) || 3000,
       ),
+      redis_host: formData.get("redis_host"),
+      redis_port: parseInt(formData.get("redis_port"), 10) || 6379,
       log_level: formData.get("log_level"),
       presets,
       ffmpeg_flags: (formData.get("ffmpeg_flags") || "")

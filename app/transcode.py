@@ -9,7 +9,7 @@ from pathvalidate import sanitize_filename
 from app.config import Settings
 from app.jellyfin import JellyfinClient
 from app.jobs import Job, RedisJobStore
-from app.presets import PRESET_TRANSCODE_DEFAULTS
+from app.presets import PRESET_TRANSCODE_DEFAULTS, with_preset_defaults
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,42 @@ def _safe_output_name(name: str) -> str:
 
 def build_output_path(settings: Settings, job: Job) -> Path:
     return settings.output_dir / f"{job.id}_{_safe_output_name(job.item_name)}.mp4"
+
+
+def get_ffmpeg_command(
+    settings: Settings,
+    input_url: str = "https://jellyfin.example/stream.m3u8",
+    output_path: str = "/data/output/output.mp4",
+    preset: dict | None = None,
+) -> list[str]:
+    resolved_preset = with_preset_defaults(preset)
+    args = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        input_url,
+        "-c:v",
+        resolved_preset["videoCodec"],
+        "-c:a",
+        resolved_preset["audioCodec"],
+        "-movflags",
+        "+faststart",
+    ]
+
+    video_bitrate = int(resolved_preset.get("videoBitrate", 0) or 0)
+    audio_bitrate = int(resolved_preset.get("audioBitrate", 0) or 0)
+    max_height = int(resolved_preset.get("maxHeight", 0) or 0)
+
+    if video_bitrate > 0:
+        args.extend(["-b:v", str(video_bitrate)])
+    if audio_bitrate > 0:
+        args.extend(["-b:a", str(audio_bitrate)])
+    if max_height > 0:
+        args.extend(["-vf", f"scale=-2:{max_height}"])
+
+    args.extend(settings.ffmpeg_flags)
+    args.append(output_path)
+    return args
 
 
 def _build_transcode_url(settings: Settings, job: Job, source_id: str) -> str:
