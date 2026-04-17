@@ -218,9 +218,7 @@ document
       ),
       log_level: formData.get("log_level"),
       presets,
-      ffmpeg_flags: (formData.get("ffmpeg_flags") || "")
-        .split(/\s+/)
-        .filter(Boolean),
+      ffmpeg_flags: formData.get("ffmpeg_flags") || "",
     };
 
     try {
@@ -282,13 +280,12 @@ document
 async function updatePreview() {
   const flagInput = document.querySelector('[name="ffmpeg_flags"]');
   const raw = flagInput?.value ?? "";
-  const flags = raw.trim().split(/\s+/).filter(Boolean);
 
   try {
     const resp = await fetch("/api/ffmpeg-preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ffmpeg_flags: flags }),
+      body: JSON.stringify({ ffmpeg_flags: raw }),
     });
 
     if (!resp.ok) {

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
+import shlex
 import shutil
 from pathlib import Path
 
+import redis
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
@@ -26,9 +29,15 @@ PROTECTED_SUBTREES = {
 FFMPEG_RESERVED_FLAGS = {
     "-i",
     "-c",
+    "-c:v",
+    "-c:a",
+    "-b:v",
+    "-b:a",
+    "-vf",
     "-hide_banner",
     "-loglevel",
     "-movflags",
+    "-y",
     "-progress",
     "-stats_period",
 }
@@ -81,7 +90,10 @@ def clear_directory_contents(directory: Path) -> int:
 
 def validate_ffmpeg_flags(flags: list[str] | str) -> list[str]:
     if isinstance(flags, str):
-        flags = flags.split()
+        try:
+            flags = shlex.split(flags)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     for token in flags:
         if token in FFMPEG_RESERVED_FLAGS:
@@ -122,51 +134,59 @@ async def ffmpeg_preview(request: Request, payload: dict):
 @router.post("/api/settings")
 async def update_settings(request: Request, data: dict):
     settings = request.app.state.settings
+    updated_settings = replace(settings)
     logger.info("Updating settings")
 
     if "jellyfin_api_key" in data and data.get("jellyfin_api_key"):
-        settings.jellyfin_api_key = data["jellyfin_api_key"]
+        updated_settings.jellyfin_api_key = data["jellyfin_api_key"]
     if "jellyfin_api_url" in data:
-        settings.jellyfin_api_url = data["jellyfin_api_url"]
+        updated_settings.jellyfin_api_url = str(data["jellyfin_api_url"]).rstrip("/")
     if "jellyfin_user_id" in data:
-        settings.jellyfin_user_id = data["jellyfin_user_id"]
+        updated_settings.jellyfin_user_id = data["jellyfin_user_id"]
     if "app_password" in data and data.get("app_password"):
-        settings.app_password = data["app_password"]
+        updated_settings.app_password = data["app_password"]
     if "transcoding_temp_dir" in data and data["transcoding_temp_dir"]:
-        settings.transcoding_temp_dir = validate_managed_directory(
+        updated_settings.transcoding_temp_dir = validate_managed_directory(
             data["transcoding_temp_dir"], "transcoding_temp_dir"
         )
     if "output_dir" in data and data["output_dir"]:
-        settings.output_dir = validate_managed_directory(
+        updated_settings.output_dir = validate_managed_directory(
             data["output_dir"], "output_dir"
         )
     if "app_host" in data:
-        settings.app_host = data["app_host"]
+        updated_settings.app_host = data["app_host"]
     if "app_port" in data and data["app_port"] is not None:
-        settings.app_port = int(data["app_port"])
+        updated_settings.app_port = int(data["app_port"])
     if data.get("jobs_poll_interval_ms") is not None:
-        settings.jobs_poll_interval_ms = max(500, int(data["jobs_poll_interval_ms"]))
+        updated_settings.jobs_poll_interval_ms = max(
+            500, int(data["jobs_poll_interval_ms"])
+        )
     if "log_level" in data and data["log_level"]:
-        settings.log_level = data["log_level"]
-        setup_logging(data["log_level"])
-        logger.info("Log level updated to %s", data["log_level"])
-        logger.debug("Debug logging is now enabled")
-        logger.warning("Warning logging remains enabled")
+        updated_settings.log_level = data["log_level"]
     if "presets" in data:
         canonical_presets = get_effective_presets(data["presets"])
-        settings.presets = canonical_presets
-        request.app.state.presets = canonical_presets
+        updated_settings.presets = canonical_presets
     if "ffmpeg_flags" in data:
-        settings.ffmpeg_flags = validate_ffmpeg_flags(data["ffmpeg_flags"])
+        updated_settings.ffmpeg_flags = validate_ffmpeg_flags(data["ffmpeg_flags"])
 
-    save_settings(settings)
+    save_settings(updated_settings)
+    request.app.state.settings = updated_settings
+    if "presets" in data:
+        request.app.state.presets = updated_settings.presets
+    if "log_level" in data and data["log_level"]:
+        setup_logging(updated_settings.log_level)
+        logger.info("Log level updated to %s", updated_settings.log_level)
+        logger.debug("Debug logging is now enabled")
+        logger.warning("Warning logging remains enabled")
     logger.info(
         "Settings saved host=%s port=%s poll_interval_ms=%s",
-        settings.app_host,
-        settings.app_port,
-        settings.jobs_poll_interval_ms,
+        updated_settings.app_host,
+        updated_settings.app_port,
+        updated_settings.jobs_poll_interval_ms,
     )
-    response_settings = build_settings_response(settings, request.app.state.presets)
+    response_settings = build_settings_response(
+        updated_settings, request.app.state.presets
+    )
     return JSONResponse({"settings": response_settings})
 
 
@@ -190,6 +210,20 @@ async def clear_output_directory(request: Request):
     removed = clear_directory_contents(settings.output_dir)
     logger.info("Cleared output directory %s removed=%d", settings.output_dir, removed)
     return JSONResponse({"cleared": removed, "path": str(settings.output_dir)})
+
+
+@router.get("/api/redis-health")
+async def redis_health(request: Request):
+    settings = request.app.state.settings
+    try:
+        from app.jobs import get_redis_client
+
+        get_redis_client(settings.redis_host, settings.redis_port).ping()
+    except redis.RedisError as exc:
+        logger.warning("Redis health check failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Redis unavailable") from exc
+
+    return JSONResponse({"status": "ok"})
 
 
 @router.get("/settings")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import redis
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -11,6 +12,10 @@ from app.transcode import enqueue_job
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def get_store(settings) -> RedisJobStore:
+    return RedisJobStore(get_redis_client(settings.redis_host, settings.redis_port))
 
 
 @router.post("/api/jobs")
@@ -30,25 +35,27 @@ async def create_job(request: Request, data: dict):
         raise HTTPException(status_code=400, detail="Invalid request")
 
     preset = presets[preset_key]
-    client = get_redis_client(settings.redis_host, settings.redis_port)
-    store = RedisJobStore(client)
-    existing_job = store.find_reusable_by_item_and_preset(item_id, preset)
-    if existing_job:
-        logger.info(
-            "Reusing existing job %s for item_id=%s preset=%s state=%s",
-            existing_job.id,
-            item_id,
-            preset_key,
-            existing_job.state.value,
-        )
-        return JSONResponse(
-            {"job": existing_job.to_dict(), "deduped": True},
-            status_code=200,
-        )
-
-    job = new_job(item_id=item_id, item_name=item_name, preset=preset)
     try:
+        store = get_store(settings)
+        existing_job = store.find_reusable_by_item_and_preset(item_id, preset)
+        if existing_job:
+            logger.info(
+                "Reusing existing job %s for item_id=%s preset=%s state=%s",
+                existing_job.id,
+                item_id,
+                preset_key,
+                existing_job.state.value,
+            )
+            return JSONResponse(
+                {"job": existing_job.to_dict(), "deduped": True},
+                status_code=200,
+            )
+
+        job = new_job(item_id=item_id, item_name=item_name, preset=preset)
         await enqueue_job(job, settings, store)
+    except redis.RedisError as exc:
+        logger.exception("Redis failure while creating job for item_id=%s", item_id)
+        raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
     except Exception as exc:
         logger.exception("Failed to create job for item_id=%s", item_id)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -61,8 +68,11 @@ async def create_job(request: Request, data: dict):
 @router.get("/api/jobs")
 async def list_jobs(request: Request):
     settings = request.app.state.settings
-    store = RedisJobStore(get_redis_client(settings.redis_host, settings.redis_port))
-    jobs = [j.to_dict() for j in store.list()]
+    try:
+        jobs = [j.to_dict() for j in get_store(settings).list()]
+    except redis.RedisError as exc:
+        logger.exception("Redis failure while listing jobs")
+        raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
     logger.debug("Listing %d job(s)", len(jobs))
     return JSONResponse({"jobs": jobs})
 
@@ -70,8 +80,11 @@ async def list_jobs(request: Request):
 @router.get("/api/jobs/{job_id}")
 async def get_job(request: Request, job_id: str):
     settings = request.app.state.settings
-    store = RedisJobStore(get_redis_client(settings.redis_host, settings.redis_port))
-    job = store.get(job_id)
+    try:
+        job = get_store(settings).get(job_id)
+    except redis.RedisError as exc:
+        logger.exception("Redis failure while loading job %s", job_id)
+        raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
     if not job:
         logger.warning("Requested missing job %s", job_id)
         raise HTTPException(status_code=404, detail="Job not found")
@@ -82,8 +95,12 @@ async def get_job(request: Request, job_id: str):
 @router.post("/api/jobs/{job_id}/cancel")
 async def cancel_job(request: Request, job_id: str):
     settings = request.app.state.settings
-    store = RedisJobStore(get_redis_client(settings.redis_host, settings.redis_port))
-    job = store.get(job_id)
+    try:
+        store = get_store(settings)
+        job = store.get(job_id)
+    except redis.RedisError as exc:
+        logger.exception("Redis failure while cancelling job %s", job_id)
+        raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
     if not job or job.state not in (JobState.QUEUED, JobState.RUNNING):
         logger.warning("Rejecting cancel for job %s", job_id)
         raise HTTPException(status_code=400, detail="Cannot cancel")
@@ -105,8 +122,11 @@ async def cancel_job(request: Request, job_id: str):
 @router.get("/api/jobs/{job_id}/download")
 async def download_job(request: Request, job_id: str):
     settings = request.app.state.settings
-    store = RedisJobStore(get_redis_client(settings.redis_host, settings.redis_port))
-    job = store.get(job_id)
+    try:
+        job = get_store(settings).get(job_id)
+    except redis.RedisError as exc:
+        logger.exception("Redis failure while loading download for job %s", job_id)
+        raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
     if not job or job.state != JobState.COMPLETED or not job.is_download_available():
         logger.warning(
             "Download requested for unavailable job output job_id=%s", job_id
@@ -122,8 +142,11 @@ async def download_job(request: Request, job_id: str):
 @router.get("/jobs/{job_id}/log")
 async def get_job_log(request: Request, job_id: str):
     settings = request.app.state.settings
-    store = RedisJobStore(get_redis_client(settings.redis_host, settings.redis_port))
-    job = store.get(job_id)
+    try:
+        job = get_store(settings).get(job_id)
+    except redis.RedisError as exc:
+        logger.exception("Redis failure while loading log for job %s", job_id)
+        raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
     if not job or not job.log_path or not Path(job.log_path).exists():
         logger.warning("Log requested for unavailable job %s", job_id)
         raise HTTPException(status_code=404, detail="Log not found")

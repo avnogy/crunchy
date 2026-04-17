@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import secrets
+import shlex
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -53,7 +54,7 @@ class Settings:
     @classmethod
     def from_dict(cls, data: dict) -> Settings:
         return cls(
-            jellyfin_api_url=data.get("jellyfin_api_url", ""),
+            jellyfin_api_url=str(data.get("jellyfin_api_url", "")).rstrip("/"),
             jellyfin_api_key=data.get("jellyfin_api_key", ""),
             jellyfin_user_id=data.get("jellyfin_user_id", ""),
             app_password=data.get("app_password", ""),
@@ -64,10 +65,18 @@ class Settings:
             app_port=int(data.get("app_port", 8000)),
             log_level=data.get("log_level", "INFO"),
             presets=data.get("presets", {}),
-            ffmpeg_flags=data.get("ffmpeg_flags", []),
+            ffmpeg_flags=_parse_ffmpeg_flags(data.get("ffmpeg_flags", [])),
             redis_host=data.get("redis_host", os.getenv("REDIS_HOST", "redis")),
             redis_port=int(data.get("redis_port", os.getenv("REDIS_PORT", "6379"))),
         )
+
+
+def _parse_ffmpeg_flags(value: list[str] | str | None) -> list[str]:
+    if isinstance(value, list):
+        return [str(flag) for flag in value if str(flag).strip()]
+    if isinstance(value, str):
+        return shlex.split(value)
+    return []
 
 
 def _get_settings_path() -> Path:
@@ -87,7 +96,7 @@ def load_settings() -> Settings:
             if not settings.app_password:
                 settings.app_password = os.getenv("APP_PASSWORD", "")
             return settings
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
             logger.warning("Failed to load settings from %s: %s", path, e)
 
     return Settings(
@@ -101,9 +110,7 @@ def load_settings() -> Settings:
         app_host=os.getenv("APP_HOST", "0.0.0.0"),
         app_port=int(os.getenv("APP_PORT", "8000")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
-        ffmpeg_flags=os.getenv("FFMPEG_FLAGS", "").split()
-        if os.getenv("FFMPEG_FLAGS")
-        else [],
+        ffmpeg_flags=_parse_ffmpeg_flags(os.getenv("FFMPEG_FLAGS", "")),
         redis_host=os.getenv("REDIS_HOST", "redis"),
         redis_port=int(os.getenv("REDIS_PORT", "6379")),
     )
