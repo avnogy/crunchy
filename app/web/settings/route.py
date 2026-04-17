@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from pathvalidate import is_valid_filepath
 
 from app.config import Settings, save_settings
+from app.jobs import get_redis_client
 from app.logging import setup_logging
 from app.presets import NEW_PRESET_TEMPLATE, get_effective_presets
 from app.transcode import get_ffmpeg_command
@@ -225,7 +226,7 @@ async def clear_output_directory(request: Request):
 async def redis_health(request: Request):
     settings = request.app.state.settings
     try:
-        client = redis.Redis(host=settings.redis_host, port=settings.redis_port, decode_responses=True)
+        client = get_redis_client(settings)
         client.ping()
     except redis.RedisError as exc:
         logger.warning("Redis health check failed: %s", exc)

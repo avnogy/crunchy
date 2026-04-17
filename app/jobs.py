@@ -11,6 +11,14 @@ JOB_QUEUE_KEY = "jobs:queue"
 JOB_IDS_KEY = "jobs:ids"
 
 
+def get_redis_client(settings) -> redis.Redis:
+    return redis.Redis(
+        host=settings.redis_host,
+        port=settings.redis_port,
+        decode_responses=True
+    )
+
+
 class JobState(str, Enum):
     model_config = {"extra": "forbid"}
     QUEUED = "queued"
@@ -74,7 +82,12 @@ class RedisJobStore:
         return Job.model_validate_json(data) if data else None
 
     def list(self) -> list[Job]:
-        return [job for job in (self.get(jid) for jid in self.client.lrange(JOB_IDS_KEY, 0, -1)) if job]
+        job_ids = self.client.lrange(JOB_IDS_KEY, 0, -1)
+        if not job_ids:
+            return []
+        keys = [f"job:{jid}" for jid in job_ids]
+        values = self.client.mget(keys)
+        return [Job.model_validate_json(v) for v in values if v]
 
     def find_reusable_by_item_and_preset(
         self, item_id: str, preset: dict[str, Any]

@@ -7,14 +7,14 @@ import redis
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from app.jobs import Job, JobState, RedisJobStore, new_job, utcnow_iso
+from app.jobs import Job, JobState, RedisJobStore, new_job, utcnow_iso, get_redis_client
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 def get_store(settings) -> RedisJobStore:
-    return RedisJobStore(redis.Redis(host=settings.redis_host, port=settings.redis_port, decode_responses=True))
+    return RedisJobStore(get_redis_client(settings))
 
 
 def _get_job(store: RedisJobStore, job_id: str) -> Job:
