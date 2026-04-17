@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 import logging
 import shlex
 import shutil
@@ -44,7 +43,7 @@ FFMPEG_RESERVED_FLAGS = {
 
 
 def build_settings_response(settings: Settings, presets: dict) -> dict:
-    data = settings.to_dict()
+    data = settings.model_dump()
     data["jellyfin_api_key"] = ""
     data["jellyfin_api_key_length"] = len(settings.jellyfin_api_key or "")
     data["app_password"] = ""
@@ -134,7 +133,7 @@ async def ffmpeg_preview(request: Request, payload: dict):
 @router.post("/api/settings")
 async def update_settings(request: Request, data: dict):
     settings = request.app.state.settings
-    updated_settings = replace(settings)
+    updated_settings = settings.model_copy()
     logger.info("Updating settings")
 
     if "jellyfin_api_key" in data and data.get("jellyfin_api_key"):
