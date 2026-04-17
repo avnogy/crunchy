@@ -63,7 +63,7 @@ def validate_managed_directory(path_value: str, field_name: str) -> Path:
             status_code=400, detail=f"{field_name} must be an absolute path"
         )
 
-    if not is_valid_filepath(path):
+    if not is_valid_filepath(path, platform="linux"):
         raise HTTPException(
             status_code=400, detail=f"{field_name} contains invalid characters"
         )
