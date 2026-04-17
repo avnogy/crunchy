@@ -33,7 +33,6 @@ docker compose -f docker-compose.dev.yml up --build
 | `SETTINGS_FILE` | `/config/settings.json` | Runtime settings file path. |
 | `TRANSCODING_TEMP_DIR` | `/data/temp` | Temporary transcode output directory. |
 | `OUTPUT_DIR` | `/data/output` | Final downloaded files directory. |
-| `MAX_CONCURRENT_JOBS` | `1` | Number of transcode jobs processed at once. |
 | `JOBS_POLL_INTERVAL_MS` | `3000` | UI job status polling interval. |
 | `APP_HOST` | `0.0.0.0` | App bind host. |
 | `APP_PORT` | `8000` | App bind port. |
@@ -44,6 +43,8 @@ docker compose -f docker-compose.dev.yml up --build
 | `CRUNCHY_IMAGE` | `ghcr.io/avnogy/crunchy:latest` | Image used by `docker-compose.yml`. |
 
 The compose setup stores app settings in `./config/settings.json` and writes finished files to `./output`.
+
+The ffmpeg worker is a separate service that only communicates through Redis. To process more jobs in parallel, scale the `ffmpeg-worker` service.
 
 ## Container Releases
 

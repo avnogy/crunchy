@@ -212,14 +212,10 @@ document
       output_dir: formData.get("output_dir"),
       app_host: formData.get("app_host"),
       app_port: parseInt(formData.get("app_port"), 10) || 8000,
-      max_concurrent_jobs:
-        parseInt(formData.get("max_concurrent_jobs"), 10) || 1,
       jobs_poll_interval_ms: Math.max(
         500,
         parseInt(formData.get("jobs_poll_interval_ms"), 10) || 3000,
       ),
-      redis_host: formData.get("redis_host"),
-      redis_port: parseInt(formData.get("redis_port"), 10) || 6379,
       log_level: formData.get("log_level"),
       presets,
       ffmpeg_flags: (formData.get("ffmpeg_flags") || "")

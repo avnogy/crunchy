@@ -23,6 +23,16 @@ PROTECTED_SUBTREES = {
     Path("/config"),
 }
 
+FFMPEG_RESERVED_FLAGS = {
+    "-i",
+    "-c",
+    "-hide_banner",
+    "-loglevel",
+    "-movflags",
+    "-progress",
+    "-stats_period",
+}
+
 
 def build_settings_response(settings: Settings, presets: dict) -> dict:
     data = settings.to_dict()
@@ -69,6 +79,21 @@ def clear_directory_contents(directory: Path) -> int:
     return removed
 
 
+def validate_ffmpeg_flags(flags: list[str] | str) -> list[str]:
+    if isinstance(flags, str):
+        flags = flags.split()
+
+    for token in flags:
+        if token in FFMPEG_RESERVED_FLAGS:
+            logger.warning("Rejected reserved ffmpeg flag: %s", token)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Flag '{token}' is not allowed as it conflicts with required options",
+            )
+
+    return flags
+
+
 @router.get("/api/settings")
 async def get_settings(request: Request):
     settings = request.app.state.settings
@@ -87,48 +112,11 @@ async def get_ffmpeg_command_api(request: Request):
 
 @router.post("/api/ffmpeg-preview")
 async def ffmpeg_preview(request: Request, payload: dict):
-    """Return the FFmpeg command based on temporary flags sent by the client.
-    All other settings are taken from the current server configuration.
-    """
     settings = request.app.state.settings
-    # Extract flags – accept list or space‑separated string
-    flags = payload.get("ffmpeg_flags", [])
-    if isinstance(flags, str):
-        flags = flags.split()
+    flags = validate_ffmpeg_flags(payload.get("ffmpeg_flags", []))
     logger.debug("Building ffmpeg preview with %d custom flag token(s)", len(flags))
-    # Validate flags: disallow options that would override hard‑coded parts of the command
-    reserved = {
-        "-i",
-        "-c",
-        "-hide_banner",
-        "-loglevel",
-        "-movflags",
-        "-progress",
-        "-stats_period",
-    }
-    for token in flags:
-        if token in reserved:
-            logger.warning("Rejected reserved ffmpeg flag in preview: %s", token)
-            raise HTTPException(
-                status_code=400,
-                detail=f"Flag '{token}' is not allowed as it conflicts with required options",
-            )
     preview_settings = Settings(
-        jellyfin_api_url=settings.jellyfin_api_url,
-        jellyfin_api_key=settings.jellyfin_api_key,
-        jellyfin_user_id=settings.jellyfin_user_id,
-        app_password=settings.app_password,
-        transcoding_temp_dir=settings.transcoding_temp_dir,
-        output_dir=settings.output_dir,
-        max_concurrent_jobs=settings.max_concurrent_jobs,
-        jobs_poll_interval_ms=settings.jobs_poll_interval_ms,
-        app_host=settings.app_host,
-        app_port=settings.app_port,
-        log_level=settings.log_level,
-        presets=settings.presets,
         ffmpeg_flags=flags,
-        redis_host=settings.redis_host,
-        redis_port=settings.redis_port,
     )
     cmd = get_ffmpeg_command(preview_settings)
     logger.debug("Returning ffmpeg preview command with %d argument(s)", len(cmd))
@@ -160,14 +148,8 @@ async def update_settings(request: Request, data: dict):
         settings.app_host = data["app_host"]
     if "app_port" in data and data["app_port"] is not None:
         settings.app_port = int(data["app_port"])
-    if "max_concurrent_jobs" in data and data["max_concurrent_jobs"] is not None:
-        settings.max_concurrent_jobs = max(1, int(data["max_concurrent_jobs"]))
     if data.get("jobs_poll_interval_ms") is not None:
         settings.jobs_poll_interval_ms = max(500, int(data["jobs_poll_interval_ms"]))
-    if "redis_host" in data and data["redis_host"]:
-        settings.redis_host = str(data["redis_host"]).strip()
-    if "redis_port" in data and data["redis_port"] is not None:
-        settings.redis_port = int(data["redis_port"])
     if "log_level" in data and data["log_level"]:
         settings.log_level = data["log_level"]
         setup_logging(data["log_level"])
@@ -179,36 +161,13 @@ async def update_settings(request: Request, data: dict):
         settings.presets = canonical_presets
         request.app.state.presets = canonical_presets
     if "ffmpeg_flags" in data:
-        # Validate flags: disallow options that would override hard‑coded parts of the command
-        reserved = {
-            "-i",
-            "-c",
-            "-hide_banner",
-            "-loglevel",
-            "-movflags",
-            "-progress",
-            "-stats_period",
-        }
-        flags = data["ffmpeg_flags"]
-        if isinstance(flags, str):
-            flags = flags.split()
-        for token in flags:
-            if token in reserved:
-                logger.warning(
-                    "Rejected reserved ffmpeg flag in settings update: %s", token
-                )
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Flag '{token}' is not allowed as it conflicts with required options",
-                )
-        settings.ffmpeg_flags = flags
+        settings.ffmpeg_flags = validate_ffmpeg_flags(data["ffmpeg_flags"])
 
     save_settings(settings)
     logger.info(
-        "Settings saved host=%s port=%s workers=%s poll_interval_ms=%s",
+        "Settings saved host=%s port=%s poll_interval_ms=%s",
         settings.app_host,
         settings.app_port,
-        settings.max_concurrent_jobs,
         settings.jobs_poll_interval_ms,
     )
     response_settings = build_settings_response(settings, request.app.state.presets)
