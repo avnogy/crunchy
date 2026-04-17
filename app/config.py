@@ -4,73 +4,56 @@ import json
 import logging
 import os
 import secrets
+import shlex
 import tempfile
-from dataclasses import dataclass, field
 from pathlib import Path
+
+from pydantic import BaseModel, Field, field_validator
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-def _to_path(v):
-    return Path(v) if isinstance(v, str) else v
+class Settings(BaseModel):
+    model_config = {"extra": "forbid"}
 
-
-@dataclass
-class Settings:
     jellyfin_api_url: str = ""
     jellyfin_api_key: str = ""
     jellyfin_user_id: str = ""
     app_password: str = ""
     transcoding_temp_dir: Path = Path("/data/temp")
     output_dir: Path = Path("/data/output")
-    max_concurrent_jobs: int = 1
     jobs_poll_interval_ms: int = 3000
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     log_level: str = "INFO"
-    presets: dict = field(default_factory=dict)
-    ffmpeg_flags: list[str] = field(default_factory=list)
+    presets: dict[str, Any] = {}
+    ffmpeg_flags: list[str] = []
+    redis_host: str = "redis"
+    redis_port: int = 6379
 
-    def to_dict(self) -> dict:
-        return {
-            "jellyfin_api_url": self.jellyfin_api_url,
-            "jellyfin_api_key": self.jellyfin_api_key,
-            "jellyfin_user_id": self.jellyfin_user_id,
-            "transcoding_temp_dir": str(self.transcoding_temp_dir),
-            "output_dir": str(self.output_dir),
-            "max_concurrent_jobs": self.max_concurrent_jobs,
-            "jobs_poll_interval_ms": self.jobs_poll_interval_ms,
-            "app_host": self.app_host,
-            "app_port": self.app_port,
-            "log_level": self.log_level,
-            "presets": self.presets,
-            "ffmpeg_flags": self.ffmpeg_flags,
-        }
-
-    def to_persisted_dict(self) -> dict:
-        data = self.to_dict()
-        data["app_password"] = self.app_password
-        return data
-
+    @field_validator("jellyfin_api_url", mode="before")
     @classmethod
-    def from_dict(cls, data: dict) -> Settings:
-        return cls(
-            jellyfin_api_url=data.get("jellyfin_api_url", ""),
-            jellyfin_api_key=data.get("jellyfin_api_key", ""),
-            jellyfin_user_id=data.get("jellyfin_user_id", ""),
-            app_password=data.get("app_password", ""),
-            transcoding_temp_dir=_to_path(
-                data.get("transcoding_temp_dir", "/data/temp")
-            ),
-            output_dir=_to_path(data.get("output_dir", "/data/output")),
-            max_concurrent_jobs=int(data.get("max_concurrent_jobs", 1)),
-            jobs_poll_interval_ms=int(data.get("jobs_poll_interval_ms", 3000)),
-            app_host=data.get("app_host", "0.0.0.0"),
-            app_port=int(data.get("app_port", 8000)),
-            log_level=data.get("log_level", "INFO"),
-            presets=data.get("presets", {}),
-            ffmpeg_flags=data.get("ffmpeg_flags", []),
-        )
+    def strip_trailing_slash(cls, v: str) -> str:
+        if isinstance(v, str):
+            return v.rstrip("/")
+        return v
+
+    @field_validator("ffmpeg_flags", mode="before")
+    @classmethod
+    def parse_ffmpeg_flags(cls, v: list[str] | str | None) -> list[str]:
+        if isinstance(v, list):
+            return [str(flag) for flag in v if str(flag).strip()]
+        if isinstance(v, str):
+            return shlex.split(v)
+        return []
+
+    @field_validator("transcoding_temp_dir", "output_dir", mode="before")
+    @classmethod
+    def parse_path(cls, v: Path | str) -> Path:
+        if isinstance(v, Path):
+            return v
+        return Path(v)
 
 
 def _get_settings_path() -> Path:
@@ -86,11 +69,11 @@ def load_settings() -> Settings:
 
     if path.exists():
         try:
-            settings = Settings.from_dict(json.loads(path.read_text()))
+            settings = Settings.model_validate(json.loads(path.read_text()))
             if not settings.app_password:
                 settings.app_password = os.getenv("APP_PASSWORD", "")
             return settings
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
             logger.warning("Failed to load settings from %s: %s", path, e)
 
     return Settings(
@@ -100,20 +83,20 @@ def load_settings() -> Settings:
         app_password=os.getenv("APP_PASSWORD", ""),
         transcoding_temp_dir=Path(os.getenv("TRANSCODING_TEMP_DIR", "/data/temp")),
         output_dir=Path(os.getenv("OUTPUT_DIR", "/data/output")),
-        max_concurrent_jobs=int(os.getenv("MAX_CONCURRENT_JOBS", "1")),
         jobs_poll_interval_ms=int(os.getenv("JOBS_POLL_INTERVAL_MS", "3000")),
         app_host=os.getenv("APP_HOST", "0.0.0.0"),
         app_port=int(os.getenv("APP_PORT", "8000")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
-        ffmpeg_flags=os.getenv("FFMPEG_FLAGS", "").split()
-        if os.getenv("FFMPEG_FLAGS")
-        else [],
+        redis_host=os.getenv("REDIS_HOST", "redis"),
+        redis_port=int(os.getenv("REDIS_PORT", "6379")),
     )
 
 
 def save_settings(settings: Settings) -> None:
     path = _get_settings_path()
-    serialized = json.dumps(settings.to_persisted_dict(), indent=2)
+    data = settings.model_dump()
+    data["app_password"] = settings.app_password
+    serialized = json.dumps(data, indent=2)
     temp_path: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)

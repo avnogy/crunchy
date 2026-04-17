@@ -67,7 +67,7 @@ function getStateClasses(state) {
     completed: "bg-green-100 text-green-800",
     failed: "bg-red-100 text-red-800",
     running: "bg-blue-100 text-blue-800",
-    pending: "bg-yellow-100 text-yellow-800",
+    queued: "bg-yellow-100 text-yellow-800",
     cancelled: "bg-gray-100 text-gray-600",
   };
   return stateColors[state] || "bg-gray-100 text-gray-600";
@@ -100,7 +100,7 @@ function renderActions(job) {
     `;
   }
 
-  if (job.state === "pending" || job.state === "running") {
+  if (job.state === "queued" || job.state === "running") {
     const logLink = job.log_path ? renderLogLink() : "";
     return `
       ${downloadButton}
@@ -122,7 +122,7 @@ function renderActions(job) {
 function renderJobCard(job) {
   const expanded = expandedJobs.has(job.id);
   const eta = getEta(job);
-  const showProgress = job.state === "running" || job.state === "pending";
+  const showProgress = job.state === "running" || job.state === "queued";
   const currentTime = formatCurrentTime(job.progress?.current);
   const totalDuration = job.progress?.duration
     ? formatDuration(job.progress.duration)

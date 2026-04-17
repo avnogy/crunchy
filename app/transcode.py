@@ -1,11 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 import logging
-import shutil
-import subprocess
-import threading
-import uuid
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -13,8 +8,8 @@ from pathvalidate import sanitize_filename
 
 from app.config import Settings
 from app.jellyfin import JellyfinClient
-from app.jobs import Job, JobState
-from app.presets import PRESET_TRANSCODE_DEFAULTS
+from app.jobs import Job, RedisJobStore
+from app.presets import Preset
 
 logger = logging.getLogger(__name__)
 
@@ -24,207 +19,81 @@ def _safe_output_name(name: str) -> str:
     return sanitized or "job"
 
 
+def build_output_path(settings: Settings, job: Job) -> Path:
+    return settings.output_dir / f"{job.id}_{_safe_output_name(job.item_name)}.mp4"
+
+
 def get_ffmpeg_command(
     settings: Settings,
-    input_url: str = "URL",
-    output_path: str = "output.mp4",
-    progress_file: str = "",
+    input_url: str = "https://jellyfin.example/stream.m3u8",
+    output_path: str = "/data/output/output.mp4",
+    preset: dict | None = None,
 ) -> list[str]:
-    cmd = [
+    resolved = Preset(**(preset or {}))
+    args = [
         "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
+        "-y",
         "-i",
         input_url,
-        "-c",
-        "copy",
+        "-c:v",
+        resolved.videoCodec,
+        "-c:a",
+        resolved.audioCodec,
         "-movflags",
         "+faststart",
-        *settings.ffmpeg_flags,
     ]
 
-    # Add progress file if specified
-    if progress_file:
-        cmd.extend(["-progress", progress_file])
+    video_bitrate = resolved.videoBitrate
+    audio_bitrate = resolved.audioBitrate
+    max_height = resolved.maxHeight
 
-    cmd.extend(
-        [
-            "-stats_period",
-            str(settings.jobs_poll_interval_ms),
-            output_path,
-        ]
-    )
+    if video_bitrate > 0:
+        args.extend(["-b:v", str(video_bitrate)])
+    if audio_bitrate > 0:
+        args.extend(["-b:a", str(audio_bitrate)])
+    if max_height > 0:
+        args.extend(["-vf", f"scale=-2:{max_height}"])
 
-    return cmd
-
-
-def cancel_job_artifacts(job: Job) -> None:
-    logger.info("Cancelling artifacts for job %s", job.id)
-    if job.process:
-        job.process.terminate()
-        try:
-            job.process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            logger.warning(
-                "Job %s did not terminate gracefully; killing process", job.id
-            )
-            job.process.kill()
-    if job.output_path and job.output_path.exists():
-        logger.debug(
-            "Removing partial output for job %s at %s", job.id, job.output_path
-        )
-        job.output_path.unlink()
+    args.extend(settings.ffmpeg_flags)
+    args.append(output_path)
+    return args
 
 
 def _build_transcode_url(settings: Settings, job: Job, source_id: str) -> str:
     url = f"{settings.jellyfin_api_url}/Videos/{job.item_id}/main.m3u8"
+    preset = Preset(**job.preset)
     params = {
         "api_key": settings.jellyfin_api_key,
-        "playSessionId": str(uuid.uuid4()),
+        "playSessionId": job.id,
         "mediaSourceId": source_id,
-        "videoCodec": job.preset.get(
-            "videoCodec", PRESET_TRANSCODE_DEFAULTS["videoCodec"]
-        ),
-        "audioCodec": job.preset.get(
-            "audioCodec", PRESET_TRANSCODE_DEFAULTS["audioCodec"]
-        ),
-        "videoBitrate": str(job.preset.get("videoBitrate", 0)),
-        "audioBitrate": str(job.preset.get("audioBitrate", 0)),
-        "maxHeight": str(job.preset.get("maxHeight", 0)),
-        "segmentContainer": job.preset.get(
-            "segmentContainer", PRESET_TRANSCODE_DEFAULTS["segmentContainer"]
-        ),
+        "videoCodec": preset.videoCodec,
+        "audioCodec": preset.audioCodec,
+        "videoBitrate": str(preset.videoBitrate),
+        "audioBitrate": str(preset.audioBitrate),
+        "maxHeight": str(preset.maxHeight),
+        "segmentContainer": preset.segmentContainer,
         "transcodeReasons": "ContainerNotSupported",
     }
     return f"{url}?{urlencode(params)}"
 
 
-def _read_progress_from_file(progress_file: Path, job: Job) -> None:
-    """
-    Read progress information from the ffmpeg progress file and update job progress.
-    """
-
-    def update_progress():
-        import time
-
-        last_out_time = ""
-
-        time.sleep(0.5)
-
-        while job.state == JobState.RUNNING:
-            try:
-                if job.process and job.process.poll() is not None:
-                    break
-
-                if progress_file.exists():
-                    with open(progress_file, "r") as f:
-                        content = f.read()
-                        lines = content.split("\n")
-                        progress_updated = False
-                        for line in lines:
-                            if line.startswith("out_time="):
-                                out_time = line.split("=")[1].strip()
-                                if out_time and out_time != last_out_time:
-                                    job.progress["current"] = out_time
-                                    last_out_time = out_time
-                                    progress_updated = True
-                            elif line.startswith("progress="):
-                                # Check if progress is finished
-                                progress_state = line.split("=")[1].strip()
-                                if progress_state == "end":
-                                    break
-
-                        # If we didn't find a new out_time but the file exists, 
-                        # it might mean ffmpeg is still processing
-                        if not progress_updated and lines:
-                            # Try to parse any speed information
-                            for line in lines:
-                                if line.startswith("speed="):
-                                    speed = line.split("=")[1].strip()
-                                    if speed and speed != "0x":
-                                        job.speed = speed
-                                        break
-
-                time.sleep(1)
-            except Exception as e:
-                logger.warning("Error reading progress file for job %s: %s", job.id, e)
-                break
-
-    threading.Thread(target=update_progress, daemon=True).start()
-
-
-async def run_job(job: Job, settings: Settings) -> None:
-    if job.state == JobState.CANCELLED:
-        logger.info("Skipping cancelled job %s before start", job.id)
-        return
-
-    logger.info("Starting job %s: %s", job.id, job.item_name)
+async def enqueue_job(job: Job, settings: Settings, store: RedisJobStore) -> Job:
+    logger.info("Enqueuing job %s: %s", job.id, job.item_name)
 
     client = JellyfinClient(settings)
-    job.start()
+    pb_info = await client.get_playback_info(job.item_id)
+    sources = pb_info.get("MediaSources", [])
+    if not sources:
+        raise ValueError("No playable media sources found")
 
-    try:
-        pb_info = await client.get_playback_info(job.item_id)
-        sources = pb_info.get("MediaSources", [])
-        if not sources:
-            logger.warning("Job %s has no playable media sources", job.id)
-            job.fail("No playable media found. This may be a Season or unwatched item.")
-            return
+    source_id = sources[0].get("Id")
+    if not source_id:
+        raise ValueError("No media source ID found")
 
-        source_id = sources[0].get("Id")
-        logger.debug("Job %s using media source %s", job.id, source_id)
-        output_path = (
-            settings.transcoding_temp_dir
-            / f"{_safe_output_name(job.item_name)}_{uuid.uuid4().hex[:8]}.mp4"
-        )
-        progress_path = (
-            settings.transcoding_temp_dir
-            / f"{_safe_output_name(job.item_name)}_{job.id[:8]}_progress.log"
-        )
-        job.output_path = output_path
+    input_url = _build_transcode_url(settings, job, source_id)
+    output_path = build_output_path(settings, job)
+    job.input_url = input_url
 
-        cmd = get_ffmpeg_command(
-            settings,
-            _build_transcode_url(settings, job, source_id),
-            str(output_path),
-            str(progress_path),
-        )
-        logger.debug(
-            "Job %s launching ffmpeg output=%s progress=%s",
-            job.id,
-            output_path,
-            progress_path,
-        )
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-        job.process = process
-
-        # Start progress monitoring
-        _read_progress_from_file(progress_path, job)
-
-        loop = asyncio.get_event_loop()
-        returncode = await loop.run_in_executor(
-            None, lambda: process.wait(timeout=3600)
-        )
-
-        if job.state == JobState.CANCELLED:
-            logger.info("Job %s was cancelled during processing", job.id)
-            return
-
-        if returncode != 0:
-            logger.error("Job %s failed with code %s", job.id, returncode)
-            job.fail(f"FFmpeg failed: {returncode}")
-            return
-
-        final_path = settings.output_dir / output_path.name
-        logger.debug("Job %s moving output to %s", job.id, final_path)
-        shutil.move(str(output_path), str(final_path))
-        job.complete(final_path)
-        logger.info("Job %s completed: %s", job.id, final_path.name)
-    except Exception as exc:
-        logger.exception("Job %s failed: %s", job.id, exc)
-        job.fail(str(exc))
+    store.add(job)
+    logger.info("Job %s enqueued successfully to Redis", job.id)
+    return job

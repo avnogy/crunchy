@@ -1,4 +1,12 @@
 services:
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+
   crunchy:
     build:
       context: .
@@ -9,6 +17,9 @@ services:
       - "${APP_PORT:-8000}:${APP_PORT:-8000}"
     env_file:
       - .env
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     volumes:
       # Persist app settings.
       - ./config:/config
@@ -16,10 +27,6 @@ services:
       - ./output:${OUTPUT_DIR:-/data/output}
     tmpfs:
       - ${TRANSCODING_TEMP_DIR:-/data/temp}:rw,size=4g
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
     command:
       - uvicorn
       - app.main:app
@@ -28,6 +35,8 @@ services:
       - --port
       - "${APP_PORT:-8000}"
       - --reload
+    depends_on:
+      - redis
     develop:
       watch:
         - action: sync+restart
@@ -37,3 +46,37 @@ services:
           path: ./requirements.txt
         - action: rebuild
           path: ./Dockerfile
+
+  ffmpeg-worker:
+    build:
+      context: .
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
+    volumes:
+      - ./output:${OUTPUT_DIR:-/data/output}
+      - ./config:/config
+      - ${TRANSCODING_TEMP_DIR:-/data/temp}:${TRANSCODING_TEMP_DIR:-/data/temp}
+    environment:
+      - OUTPUT_DIR=${OUTPUT_DIR:-/data/output}
+      - TRANSCODING_TEMP_DIR=${TRANSCODING_TEMP_DIR:-/data/temp}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - FFMPEG_FLAGS=${FFMPEG_FLAGS:-}
+    entrypoint: ["/entrypoint.sh"]
+    command: ["python", "-m", "app.ffmpeg_worker"]
+    depends_on:
+      - redis
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./app
+          target: /app/app
+        - action: rebuild
+          path: ./requirements.txt
+        - action: rebuild
+          path: ./Dockerfile
+
+volumes:
+  redis_data:

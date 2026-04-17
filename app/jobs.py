@@ -1,119 +1,120 @@
-from __future__ import annotations
-
-import uuid
-from datetime import datetime
+from pydantic import BaseModel, Field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
+import json
+import uuid
+import redis
+
+JOB_QUEUE_KEY = "jobs:queue"
+JOB_IDS_KEY = "jobs:ids"
+
+
+def get_redis_client(settings) -> redis.Redis:
+    return redis.Redis(
+        host=settings.redis_host,
+        port=settings.redis_port,
+        decode_responses=True
+    )
 
 
 class JobState(str, Enum):
-    PENDING = "pending"
+    model_config = {"extra": "forbid"}
+    QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
 
-class Job:
-    def __init__(
-        self,
-        item_id: str,
-        item_name: str,
-        preset: dict[str, Any],
-    ) -> None:
-        self.id = str(uuid.uuid4())
-        self.item_id = item_id
-        self.item_name = item_name
-        self.preset = preset
-        self.state = JobState.PENDING
-        self.created_at = datetime.utcnow()
-        self.started_at: datetime | None = None
-        self.finished_at: datetime | None = None
-        self.output_path: Path | None = None
-        self.log_path: Path | None = None
-        self.process: Any = None
-        self.error_message: str | None = self._validate()
-        self.speed: str = ""
-        self.progress: dict[str, Any] = {}
+def utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
-    def _validate(self) -> str | None:
-        if not self.item_id:
-            return "item_id is required"
-        if not self.item_name:
-            return "item_name is required"
-        if not self.preset:
-            return "preset is required"
-        return None
 
-    def start(self) -> None:
-        self.state = JobState.RUNNING
-        self.started_at = datetime.utcnow()
+class Job(BaseModel):
+    model_config = {"extra": "forbid"}
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    item_id: str
+    item_name: str
+    preset: dict[str, Any]
+    state: JobState = JobState.QUEUED
+    created_at: str = Field(default_factory=utcnow_iso)
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    output_path: Optional[str] = None
+    log_path: Optional[str] = None
+    input_url: Optional[str] = None
+    error_message: Optional[str] = None
+    speed: str = ""
+    progress: dict[str, Any] = {}
+    cancel_requested: bool = False
 
-    def complete(self, output_path: Path) -> None:
-        self.state = JobState.COMPLETED
-        self.finished_at = datetime.utcnow()
-        self.output_path = output_path
-
-    def fail(self, error_message: str) -> None:
-        self.state = JobState.FAILED
-        self.finished_at = datetime.utcnow()
-        self.error_message = error_message
-
-    def cancel(self) -> None:
-        self.state = JobState.CANCELLED
-        self.finished_at = datetime.utcnow()
+    @property
+    def preset_signature(self) -> str:
+        return json.dumps(self.preset, sort_keys=True, separators=(",", ":"))
 
     def is_download_available(self) -> bool:
-        return bool(self.output_path and self.output_path.exists())
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "item_id": self.item_id,
-            "item_name": self.item_name,
-            "preset": self.preset,
-            "state": self.state.value,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
-            "output_path": str(self.output_path) if self.output_path else None,
-            "log_path": str(self.log_path) if self.log_path else None,
-            "download_available": self.is_download_available(),
-            "error_message": self.error_message,
-            "speed": self.speed,
-            "progress": self.progress,
-        }
+        return bool(self.output_path and Path(self.output_path).exists())
 
 
-class JobStore:
-    def __init__(self) -> None:
-        self._jobs: dict[str, Job] = {}
+def new_job(item_id: str, item_name: str, preset: dict[str, Any]) -> Job:
+    return Job(
+        item_id=item_id,
+        item_name=item_name,
+        preset=preset,
+    )
+
+
+class RedisJobStore:
+    def __init__(self, client: redis.Redis) -> None:
+        self.client = client
 
     def add(self, job: Job) -> Job:
-        self._jobs[job.id] = job
+        pipe = self.client.pipeline()
+        pipe.set(f"job:{job.id}", job.model_dump_json())
+        pipe.lpush(JOB_IDS_KEY, job.id)
+        pipe.rpush(JOB_QUEUE_KEY, job.model_dump_json())
+        pipe.execute()
         return job
 
     def get(self, job_id: str) -> Job | None:
-        return self._jobs.get(job_id)
+        data = self.client.get(f"job:{job_id}")
+        return Job.model_validate_json(data) if data else None
+
+    def list(self) -> list[Job]:
+        job_ids = self.client.lrange(JOB_IDS_KEY, 0, -1)
+        if not job_ids:
+            return []
+        keys = [f"job:{jid}" for jid in job_ids]
+        values = self.client.mget(keys)
+        return [Job.model_validate_json(v) for v in values if v]
 
     def find_reusable_by_item_and_preset(
         self, item_id: str, preset: dict[str, Any]
     ) -> Job | None:
-        for job in self._jobs.values():
-            if (
-                job.item_id == item_id
-                and job.preset == preset
-                and (
-                    job.state in (JobState.PENDING, JobState.RUNNING)
-                    or (job.state == JobState.COMPLETED and job.is_download_available())
-                )
-            ):
+        signature = json.dumps(preset, sort_keys=True, separators=(",", ":"))
+        for job in self.list():
+            if job.item_id != item_id:
+                continue
+            if job.preset_signature != signature:
+                continue
+            if job.state in (JobState.QUEUED, JobState.RUNNING):
+                return job
+            if job.state == JobState.COMPLETED and job.is_download_available():
                 return job
         return None
 
-    def list(self) -> list[Job]:
-        return sorted(self._jobs.values(), key=lambda j: j.created_at, reverse=True)
+    def update(self, job_id: str, **changes: Any) -> Job | None:
+        key = f"job:{job_id}"
 
+        data = self.client.get(key)
+        if not data:
+            return None
 
-job_store = JobStore()
+        job = Job.model_validate_json(data)
+        updated = job.model_copy(update=changes)
+
+        self.client.set(key, updated.model_dump_json())
+
+        return updated

@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import logging
+import shlex
 import shutil
 from pathlib import Path
+from typing import Any
 
+import redis
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pathvalidate import is_valid_filepath
 
 from app.config import Settings, save_settings
+from app.jobs import get_redis_client
 from app.logging import setup_logging
 from app.presets import NEW_PRESET_TEMPLATE, get_effective_presets
 from app.transcode import get_ffmpeg_command
@@ -23,9 +28,25 @@ PROTECTED_SUBTREES = {
     Path("/config"),
 }
 
+FFMPEG_RESERVED_FLAGS = {
+    "-i",
+    "-c",
+    "-c:v",
+    "-c:a",
+    "-b:v",
+    "-b:a",
+    "-vf",
+    "-hide_banner",
+    "-loglevel",
+    "-movflags",
+    "-y",
+    "-progress",
+    "-stats_period",
+}
+
 
 def build_settings_response(settings: Settings, presets: dict) -> dict:
-    data = settings.to_dict()
+    data = settings.model_dump()
     data["jellyfin_api_key"] = ""
     data["jellyfin_api_key_length"] = len(settings.jellyfin_api_key or "")
     data["app_password"] = ""
@@ -40,6 +61,11 @@ def validate_managed_directory(path_value: str, field_name: str) -> Path:
     if not path.is_absolute():
         raise HTTPException(
             status_code=400, detail=f"{field_name} must be an absolute path"
+        )
+
+    if not is_valid_filepath(path):
+        raise HTTPException(
+            status_code=400, detail=f"{field_name} contains invalid characters"
         )
 
     resolved = path.resolve(strict=False)
@@ -58,15 +84,36 @@ def validate_managed_directory(path_value: str, field_name: str) -> Path:
 
 
 def clear_directory_contents(directory: Path) -> int:
-    directory.mkdir(parents=True, exist_ok=True)
+    if not directory.exists():
+        directory.mkdir(parents=True, exist_ok=True)
+        return 0
+
     removed = 0
     for child in directory.iterdir():
         if child.is_dir() and not child.is_symlink():
             shutil.rmtree(child)
         else:
-            child.unlink()
+            child.unlink(missing_ok=True)
         removed += 1
     return removed
+
+
+def validate_ffmpeg_flags(flags: list[str] | str) -> list[str]:
+    if isinstance(flags, str):
+        try:
+            flags = shlex.split(flags)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    for token in flags:
+        if token in FFMPEG_RESERVED_FLAGS:
+            logger.warning("Rejected reserved ffmpeg flag: %s", token)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Flag '{token}' is not allowed as it conflicts with required options",
+            )
+
+    return flags
 
 
 @router.get("/api/settings")
@@ -87,47 +134,9 @@ async def get_ffmpeg_command_api(request: Request):
 
 @router.post("/api/ffmpeg-preview")
 async def ffmpeg_preview(request: Request, payload: dict):
-    """Return the FFmpeg command based on temporary flags sent by the client.
-    All other settings are taken from the current server configuration.
-    """
-    settings = request.app.state.settings
-    # Extract flags – accept list or space‑separated string
-    flags = payload.get("ffmpeg_flags", [])
-    if isinstance(flags, str):
-        flags = flags.split()
+    flags = validate_ffmpeg_flags(payload.get("ffmpeg_flags", []))
     logger.debug("Building ffmpeg preview with %d custom flag token(s)", len(flags))
-    # Validate flags: disallow options that would override hard‑coded parts of the command
-    reserved = {
-        "-i",
-        "-c",
-        "-hide_banner",
-        "-loglevel",
-        "-movflags",
-        "-progress",
-        "-stats_period",
-    }
-    for token in flags:
-        if token in reserved:
-            logger.warning("Rejected reserved ffmpeg flag in preview: %s", token)
-            raise HTTPException(
-                status_code=400,
-                detail=f"Flag '{token}' is not allowed as it conflicts with required options",
-            )
-    preview_settings = Settings(
-        jellyfin_api_url=settings.jellyfin_api_url,
-        jellyfin_api_key=settings.jellyfin_api_key,
-        jellyfin_user_id=settings.jellyfin_user_id,
-        transcoding_temp_dir=settings.transcoding_temp_dir,
-        output_dir=settings.output_dir,
-        max_concurrent_jobs=settings.max_concurrent_jobs,
-        jobs_poll_interval_ms=settings.jobs_poll_interval_ms,
-        app_host=settings.app_host,
-        app_port=settings.app_port,
-        log_level=settings.log_level,
-        presets=settings.presets,
-        ffmpeg_flags=flags,
-    )
-    cmd = get_ffmpeg_command(preview_settings)
+    cmd = get_ffmpeg_command(Settings(ffmpeg_flags=flags))
     logger.debug("Returning ffmpeg preview command with %d argument(s)", len(cmd))
     return JSONResponse({"command": cmd})
 
@@ -135,76 +144,59 @@ async def ffmpeg_preview(request: Request, payload: dict):
 @router.post("/api/settings")
 async def update_settings(request: Request, data: dict):
     settings = request.app.state.settings
+    updated_settings = settings.model_copy()
     logger.info("Updating settings")
 
     if "jellyfin_api_key" in data and data.get("jellyfin_api_key"):
-        settings.jellyfin_api_key = data["jellyfin_api_key"]
+        updated_settings.jellyfin_api_key = data["jellyfin_api_key"]
     if "jellyfin_api_url" in data:
-        settings.jellyfin_api_url = data["jellyfin_api_url"]
+        updated_settings.jellyfin_api_url = str(data["jellyfin_api_url"]).rstrip("/")
     if "jellyfin_user_id" in data:
-        settings.jellyfin_user_id = data["jellyfin_user_id"]
+        updated_settings.jellyfin_user_id = data["jellyfin_user_id"]
     if "app_password" in data and data.get("app_password"):
-        settings.app_password = data["app_password"]
+        updated_settings.app_password = data["app_password"]
     if "transcoding_temp_dir" in data and data["transcoding_temp_dir"]:
-        settings.transcoding_temp_dir = validate_managed_directory(
+        updated_settings.transcoding_temp_dir = validate_managed_directory(
             data["transcoding_temp_dir"], "transcoding_temp_dir"
         )
     if "output_dir" in data and data["output_dir"]:
-        settings.output_dir = validate_managed_directory(
+        updated_settings.output_dir = validate_managed_directory(
             data["output_dir"], "output_dir"
         )
     if "app_host" in data:
-        settings.app_host = data["app_host"]
+        updated_settings.app_host = data["app_host"]
     if "app_port" in data and data["app_port"] is not None:
-        settings.app_port = int(data["app_port"])
-    if "max_concurrent_jobs" in data and data["max_concurrent_jobs"] is not None:
-        settings.max_concurrent_jobs = int(data["max_concurrent_jobs"])
+        updated_settings.app_port = int(data["app_port"])
     if data.get("jobs_poll_interval_ms") is not None:
-        settings.jobs_poll_interval_ms = max(500, int(data["jobs_poll_interval_ms"]))
+        updated_settings.jobs_poll_interval_ms = max(
+            500, int(data["jobs_poll_interval_ms"])
+        )
     if "log_level" in data and data["log_level"]:
-        settings.log_level = data["log_level"]
-        setup_logging(data["log_level"])
-        logger.info("Log level updated to %s", data["log_level"])
-        logger.debug("Debug logging is now enabled")
-        logger.warning("Warning logging remains enabled")
+        updated_settings.log_level = data["log_level"]
     if "presets" in data:
         canonical_presets = get_effective_presets(data["presets"])
-        settings.presets = canonical_presets
-        request.app.state.presets = canonical_presets
+        updated_settings.presets = canonical_presets
     if "ffmpeg_flags" in data:
-        # Validate flags: disallow options that would override hard‑coded parts of the command
-        reserved = {
-            "-i",
-            "-c",
-            "-hide_banner",
-            "-loglevel",
-            "-movflags",
-            "-progress",
-            "-stats_period",
-        }
-        flags = data["ffmpeg_flags"]
-        if isinstance(flags, str):
-            flags = flags.split()
-        for token in flags:
-            if token in reserved:
-                logger.warning(
-                    "Rejected reserved ffmpeg flag in settings update: %s", token
-                )
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Flag '{token}' is not allowed as it conflicts with required options",
-                )
-        settings.ffmpeg_flags = flags
+        updated_settings.ffmpeg_flags = validate_ffmpeg_flags(data["ffmpeg_flags"])
 
-    save_settings(settings)
+    save_settings(updated_settings)
+    request.app.state.settings = updated_settings
+    if "presets" in data:
+        request.app.state.presets = updated_settings.presets
+    if "log_level" in data and data["log_level"]:
+        setup_logging(updated_settings.log_level)
+        logger.info("Log level updated to %s", updated_settings.log_level)
+        logger.debug("Debug logging is now enabled")
+        logger.warning("Warning logging remains enabled")
     logger.info(
-        "Settings saved host=%s port=%s workers=%s poll_interval_ms=%s",
-        settings.app_host,
-        settings.app_port,
-        settings.max_concurrent_jobs,
-        settings.jobs_poll_interval_ms,
+        "Settings saved host=%s port=%s poll_interval_ms=%s",
+        updated_settings.app_host,
+        updated_settings.app_port,
+        updated_settings.jobs_poll_interval_ms,
     )
-    response_settings = build_settings_response(settings, request.app.state.presets)
+    response_settings = build_settings_response(
+        updated_settings, request.app.state.presets
+    )
     return JSONResponse({"settings": response_settings})
 
 
@@ -228,6 +220,19 @@ async def clear_output_directory(request: Request):
     removed = clear_directory_contents(settings.output_dir)
     logger.info("Cleared output directory %s removed=%d", settings.output_dir, removed)
     return JSONResponse({"cleared": removed, "path": str(settings.output_dir)})
+
+
+@router.get("/api/redis-health")
+async def redis_health(request: Request):
+    settings = request.app.state.settings
+    try:
+        client = get_redis_client(settings)
+        client.ping()
+    except redis.RedisError as exc:
+        logger.warning("Redis health check failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Redis unavailable") from exc
+
+    return JSONResponse({"status": "ok"})
 
 
 @router.get("/settings")
