@@ -44,6 +44,17 @@ def _run_job(store: RedisJobStore, settings, job_data: dict[str, Any]) -> None:
     output_path = Path(job_data["output_path"])
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    existing = store.find_reusable_by_item_and_preset(job.item_id, job.preset)
+    if existing and existing.state == JobState.COMPLETED and existing.is_download_available():
+        logger.info("Reusing completed job %s for item %s", existing.id, job.item_id)
+        store.update(
+            job_id,
+            state=JobState.COMPLETED,
+            output_path=existing.output_path,
+            finished_at=existing.finished_at,
+        )
+        return
+
     if job.state == JobState.CANCELLED or job.cancel_requested:
         logger.info("Skipping cancelled queued job %s", job_id)
         _mark_cancelled(store, job_id, output_path)
