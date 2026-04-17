@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import json
 import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
 
 from app.config import load_settings
-from app.jobs import JOB_QUEUE_KEY, JobState, RedisJobStore, utcnow_iso, get_redis_client
-from app.transcode import get_ffmpeg_command
+from app.jobs import JOB_QUEUE_KEY, Job, JobState, RedisJobStore, utcnow_iso, get_redis_client
+from app.transcode import build_output_path, get_ffmpeg_command
 
 logger = logging.getLogger(__name__)
 
@@ -34,19 +32,14 @@ def _mark_cancelled(store: RedisJobStore, job_id: str, output_path: Path) -> Non
     )
 
 
-def _run_job(store: RedisJobStore, settings, job_data: dict[str, Any]) -> None:
-    job_id = job_data["job_id"]
-    job = store.get(job_id)
-    if not job:
-        logger.warning("Skipping missing job %s", job_id)
-        return
-
-    output_path = Path(job_data["output_path"])
+def _run_job(store: RedisJobStore, settings, job: Job) -> None:
+    job_id = job.id
+    output_path = build_output_path(settings, job)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     existing = store.find_reusable_by_item_and_preset(job.item_id, job.preset)
     if existing and existing.state == JobState.COMPLETED and existing.is_download_available():
-        logger.info("Reusing completed job %s for item %s", existing.id, job.item_id)
+        logger.info("Reusing completed job %s for item %s", existing.id, job.item_name)
         store.update(
             job_id,
             state=JobState.COMPLETED,
@@ -63,7 +56,7 @@ def _run_job(store: RedisJobStore, settings, job_data: dict[str, Any]) -> None:
     log_path = output_path.with_suffix(".log")
     ffmpeg_args = get_ffmpeg_command(
         settings,
-        input_url=job_data["input_url"],
+        input_url=job.input_url or "",
         output_path=str(output_path),
         preset=job.preset,
     )
@@ -144,18 +137,12 @@ def main() -> None:
         settings.redis_port,
     )
     while True:
-        job_data: dict[str, Any] | None = None
         _, payload = client.blpop(JOB_QUEUE_KEY, timeout=0)
         try:
-            job_data = json.loads(payload)
-            _run_job(store, settings, job_data)
+            job = Job.model_validate_json(payload)
+            _run_job(store, settings, job)
         except Exception as exc:
-            logger.exception("Worker failed to process payload: %s", exc)
-            job_id = None
-            if isinstance(job_data, dict):
-                job_id = job_data.get("job_id")
-            if job_id:
-                _mark_failed(store, job_id, str(exc))
+            logger.exception("Worker failed to process job: %s", exc)
 
 
 if __name__ == "__main__":

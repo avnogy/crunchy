@@ -44,6 +44,7 @@ class Job(BaseModel):
     finished_at: Optional[str] = None
     output_path: Optional[str] = None
     log_path: Optional[str] = None
+    input_url: Optional[str] = None
     error_message: Optional[str] = None
     speed: str = ""
     progress: dict[str, Any] = {}
@@ -69,11 +70,11 @@ class RedisJobStore:
     def __init__(self, client: redis.Redis) -> None:
         self.client = client
 
-    def add(self, job: Job, payload: dict[str, Any]) -> Job:
+    def add(self, job: Job) -> Job:
         pipe = self.client.pipeline()
         pipe.set(f"job:{job.id}", job.model_dump_json())
         pipe.lpush(JOB_IDS_KEY, job.id)
-        pipe.rpush(JOB_QUEUE_KEY, json.dumps(payload))
+        pipe.rpush(JOB_QUEUE_KEY, job.model_dump_json())
         pipe.execute()
         return job
 

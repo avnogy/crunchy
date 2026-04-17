@@ -92,16 +92,8 @@ async def enqueue_job(job: Job, settings: Settings, store: RedisJobStore) -> Job
 
     input_url = _build_transcode_url(settings, job, source_id)
     output_path = build_output_path(settings, job)
-    payload = {
-        "job_id": job.id,
-        "item_id": job.item_id,
-        "item_name": job.item_name,
-        "preset": job.preset,
-        "input_url": input_url,
-        "output_path": str(output_path),
-        "created_at": job.created_at,
-    }
+    job.input_url = input_url
 
-    store.add(job, payload)
+    store.add(job)
     logger.info("Job %s enqueued successfully to Redis", job.id)
     return job
