@@ -43,17 +43,23 @@ def validate_ffmpeg_flags(flags: list[str]) -> list[str]:
 
 
 def build_settings_view(settings: Settings) -> SettingsView:
-    return SettingsView(
-        **settings.model_dump(),
-        transcoding_temp_dir=str(TRANSCODING_TEMP_DIR),
-        output_dir=str(OUTPUT_DIR),
+    payload = settings.model_dump(
+        exclude={
+            "jellyfin_api_key",
+            "app_password",
+        }
+    )
+    payload.update(
         jellyfin_api_key="",
         jellyfin_api_key_length=len(settings.jellyfin_api_key or ""),
         app_password="",
         app_password_length=len(settings.app_password or ""),
+        transcoding_temp_dir=str(TRANSCODING_TEMP_DIR),
+        output_dir=str(OUTPUT_DIR),
         new_preset_template=NEW_PRESET_TEMPLATE,
         valid_log_levels=list(VALID_LOG_LEVELS),
     )
+    return SettingsView(**payload)
 
 
 def update_settings(app_state: Any, payload: SettingsPatch) -> Settings:
