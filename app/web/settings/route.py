@@ -4,16 +4,16 @@ import logging
 import shlex
 import shutil
 from pathlib import Path
-from typing import Any
 
 import redis
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pathvalidate import is_valid_filename
+from pydantic import ValidationError
 
 from app.config import Settings, save_settings
 from app.jobs import get_redis_client
-from app.logging import setup_logging
+from app.logging import VALID_LOG_LEVELS, setup_logging
 from app.presets import NEW_PRESET_TEMPLATE, get_effective_presets
 from app.transcode import get_ffmpeg_command
 
@@ -44,7 +44,6 @@ FFMPEG_RESERVED_FLAGS = {
     "-stats_period",
 }
 
-
 def build_settings_response(settings: Settings, presets: dict) -> dict:
     data = settings.model_dump()
     for key, value in data.items():
@@ -56,6 +55,7 @@ def build_settings_response(settings: Settings, presets: dict) -> dict:
     data["app_password_length"] = len(settings.app_password or "")
     data["presets"] = presets
     data["new_preset_template"] = NEW_PRESET_TEMPLATE
+    data["valid_log_levels"] = list(VALID_LOG_LEVELS)
     return data
 
 
@@ -166,16 +166,25 @@ async def update_settings(request: Request, data: dict):
         updated_settings.output_dir = validate_managed_directory(
             data["output_dir"], "output_dir"
         )
-    if "app_host" in data:
-        updated_settings.app_host = data["app_host"]
-    if "app_port" in data and data["app_port"] is not None:
-        updated_settings.app_port = int(data["app_port"])
-    if data.get("jobs_poll_interval_ms") is not None:
-        updated_settings.jobs_poll_interval_ms = max(
-            500, int(data["jobs_poll_interval_ms"])
-        )
-    if "log_level" in data and data["log_level"]:
-        updated_settings.log_level = data["log_level"]
+    try:
+        if "app_host" in data:
+            updated_settings.app_host = data["app_host"]
+        if "app_port" in data and data["app_port"] is not None:
+            updated_settings.app_port = data["app_port"]
+        if "redis_host" in data:
+            updated_settings.redis_host = data["redis_host"]
+        if "redis_port" in data and data["redis_port"] is not None:
+            updated_settings.redis_port = data["redis_port"]
+        if data.get("jobs_poll_interval_ms") is not None:
+            updated_settings.jobs_poll_interval_ms = data["jobs_poll_interval_ms"]
+        if "log_level" in data and data["log_level"]:
+            log_level = str(data["log_level"]).upper()
+            if log_level not in VALID_LOG_LEVELS:
+                raise HTTPException(status_code=400, detail="Unsupported log level")
+            updated_settings.log_level = log_level
+    except ValidationError as exc:
+        first_error = exc.errors()[0]
+        raise HTTPException(status_code=400, detail=first_error["msg"]) from exc
     if "presets" in data:
         canonical_presets = get_effective_presets(data["presets"])
         updated_settings.presets = canonical_presets
@@ -192,9 +201,11 @@ async def update_settings(request: Request, data: dict):
         logger.debug("Debug logging is now enabled")
         logger.warning("Warning logging remains enabled")
     logger.info(
-        "Settings saved host=%s port=%s poll_interval_ms=%s",
+        "Settings saved app=%s:%s redis=%s:%s poll_interval_ms=%s",
         updated_settings.app_host,
         updated_settings.app_port,
+        updated_settings.redis_host,
+        updated_settings.redis_port,
         updated_settings.jobs_poll_interval_ms,
     )
     response_settings = build_settings_response(
@@ -244,5 +255,9 @@ async def settings_page(request: Request):
     logger.debug("Rendering settings page")
     return templates.TemplateResponse(
         "settings/index.html",
-        {"request": request, "active_page": "settings"},
+        {
+            "request": request,
+            "active_page": "settings",
+            "valid_log_levels": VALID_LOG_LEVELS,
+        },
     )
