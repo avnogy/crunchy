@@ -70,7 +70,6 @@ async def get_item_with_children(
 async def item_detail(request: Request, item_id: str):
     settings = request.app.state.settings
     templates = request.app.state.templates
-    presets = request.app.state.presets
     logger.debug("Rendering item detail for item_id=%s", item_id)
     client = JellyfinClient(settings)
     item, children = await get_item_with_children(item_id, client)
@@ -91,7 +90,7 @@ async def item_detail(request: Request, item_id: str):
             "children": [
                 normalize_item(c, settings.jellyfin_api_url) for c in children
             ],
-            "presets": presets,
+            "presets": settings.presets,
             "settings": settings,
             "active_page": "items",
         },

@@ -66,7 +66,24 @@ class SettingsValidationModel(BaseModel):
         return parse_ffmpeg_flags(value)
 
 
-class SettingsPayload(SettingsValidationModel):
+class SettingsModel(SettingsValidationModel):
+    model_config = {"extra": "forbid"}
+
+    jellyfin_api_url: str = ""
+    jellyfin_api_key: str = ""
+    jellyfin_user_id: str = ""
+    app_password: str = ""
+    jobs_poll_interval_ms: int = Field(default=3000, ge=500)
+    app_host: str = "0.0.0.0"
+    app_port: int = Field(default=8000, ge=1, le=65535)
+    log_level: str = "INFO"
+    presets: dict[str, Any] = Field(default_factory=dict)
+    ffmpeg_flags: list[str] = Field(default_factory=list)
+    redis_host: str = "redis"
+    redis_port: int = Field(default=6379, ge=1, le=65535)
+
+
+class SettingsPatch(SettingsValidationModel):
     model_config = {"extra": "forbid"}
 
     jellyfin_api_url: str | None = None
@@ -81,6 +98,29 @@ class SettingsPayload(SettingsValidationModel):
     ffmpeg_flags: list[str] | None = None
     redis_host: str | None = None
     redis_port: int | None = Field(default=None, ge=1, le=65535)
+
+
+class SettingsView(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    jellyfin_api_url: str = ""
+    jellyfin_api_key: str = ""
+    jellyfin_api_key_length: int = 0
+    jellyfin_user_id: str = ""
+    app_password: str = ""
+    app_password_length: int = 0
+    jobs_poll_interval_ms: int = Field(default=3000, ge=500)
+    app_host: str = "0.0.0.0"
+    app_port: int = Field(default=8000, ge=1, le=65535)
+    log_level: str = "INFO"
+    presets: dict[str, Any] = Field(default_factory=dict)
+    ffmpeg_flags: list[str] = Field(default_factory=list)
+    redis_host: str = "redis"
+    redis_port: int = Field(default=6379, ge=1, le=65535)
+    transcoding_temp_dir: str = ""
+    output_dir: str = ""
+    new_preset_template: dict[str, Any] = Field(default_factory=dict)
+    valid_log_levels: list[str] = Field(default_factory=list)
 
 
 class FfmpegFlagsValidationModel(BaseModel):

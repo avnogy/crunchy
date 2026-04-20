@@ -7,55 +7,26 @@ import secrets
 import tempfile
 from pathlib import Path
 
-from pydantic import Field, ValidationError
+from pydantic import ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Any
 from app.api_models import (
-    SettingsValidationModel,
+    SettingsModel,
 )
+from app.presets import get_effective_presets
 
 logger = logging.getLogger(__name__)
-LEGACY_SETTINGS_KEYS = {"transcoding_temp_dir", "output_dir"}
 
 
-class Settings(SettingsValidationModel):
+class Settings(SettingsModel):
     model_config = {"extra": "forbid", "validate_assignment": True}
 
-    jellyfin_api_url: str = ""
-    jellyfin_api_key: str = ""
-    jellyfin_user_id: str = ""
-    app_password: str = ""
-    jobs_poll_interval_ms: int = Field(default=3000, ge=500)
-    app_host: str = "0.0.0.0"
-    app_port: int = Field(default=8000, ge=1, le=65535)
-    log_level: str = "INFO"
-    presets: dict[str, Any] = Field(default_factory=dict)
-    ffmpeg_flags: list[str] = Field(default_factory=list)
-    redis_host: str = "redis"
-    redis_port: int = Field(default=6379, ge=1, le=65535)
 
-
-class EnvSettings(SettingsValidationModel, BaseSettings):
+class EnvSettings(SettingsModel, BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="",
         extra="ignore",
+        alias_generator=str.upper,
     )
-
-    jellyfin_api_url: str = Field(default="", alias="JELLYFIN_API_URL")
-    jellyfin_api_key: str = Field(default="", alias="JELLYFIN_API_KEY")
-    jellyfin_user_id: str = Field(default="", alias="JELLYFIN_USER_ID")
-    app_password: str = Field(default="", alias="APP_PASSWORD")
-    jobs_poll_interval_ms: int = Field(
-        default=3000,
-        ge=500,
-        alias="JOBS_POLL_INTERVAL_MS",
-    )
-    app_host: str = Field(default="0.0.0.0", alias="APP_HOST")
-    app_port: int = Field(default=8000, ge=1, le=65535, alias="APP_PORT")
-    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
-    ffmpeg_flags: list[str] = Field(default_factory=list, alias="FFMPEG_FLAGS")
-    redis_host: str = Field(default="redis", alias="REDIS_HOST")
-    redis_port: int = Field(default=6379, ge=1, le=65535, alias="REDIS_PORT")
 
 
 def _get_settings_path() -> Path:
@@ -66,13 +37,14 @@ def generate_app_password(length: int = 24) -> str:
     return secrets.token_urlsafe(length)[:length]
 
 
-def _strip_legacy_settings_keys(data: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in data.items() if key not in LEGACY_SETTINGS_KEYS}
+def _normalize_settings(settings: Settings) -> Settings:
+    settings.presets = get_effective_presets(settings.presets)
+    return settings
 
 
 def _load_env_settings() -> Settings:
     env_settings = EnvSettings()
-    return Settings.model_validate(env_settings.model_dump())
+    return _normalize_settings(Settings.model_validate(env_settings.model_dump()))
 
 
 def load_settings() -> Settings:
@@ -81,12 +53,7 @@ def load_settings() -> Settings:
     if path.exists():
         try:
             raw_settings = json.loads(path.read_text())
-            if isinstance(raw_settings, dict):
-                raw_settings = _strip_legacy_settings_keys(raw_settings)
-            settings = Settings.model_validate(raw_settings)
-            if not settings.app_password:
-                settings.app_password = _load_env_settings().app_password
-            return settings
+            return _normalize_settings(Settings.model_validate(raw_settings))
         except (json.JSONDecodeError, KeyError, ValidationError, ValueError) as e:
             logger.warning("Failed to load settings from %s: %s", path, e)
 

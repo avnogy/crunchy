@@ -12,7 +12,6 @@ from app.auth import require_basic_auth
 from app.config import ensure_app_password, load_settings
 from app.logging import setup_logging
 from app.paths import ensure_managed_directories
-from app.presets import get_effective_presets
 from app.web.home import router as home_router
 from app.web.items import router as items_router
 from app.web.jobs import router as jobs_router
@@ -48,7 +47,6 @@ app = FastAPI(
     openapi_url=None,
 )
 app.state.settings = settings
-app.state.presets = get_effective_presets(settings.presets)
 app.state.templates = templates
 
 

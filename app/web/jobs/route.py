@@ -29,8 +29,8 @@ def _get_job(store: RedisJobStore, job_id: str) -> Job:
 
 @router.post("/api/jobs")
 async def create_job(request: Request, data: CreateJobPayload):
-    presets = request.app.state.presets
     settings = request.app.state.settings
+    presets = settings.presets
     item_id = data.item_id
     item_name = data.item_name
     preset_key = data.preset
