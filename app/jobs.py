@@ -78,9 +78,10 @@ class RedisJobStore:
 
     def add(self, job: Job) -> Job:
         pipe = self.client.pipeline()
-        pipe.set(f"job:{job.id}", job.model_dump_json())
+        serialized = job.model_dump_json(exclude_computed_fields=True)
+        pipe.set(f"job:{job.id}", serialized)
         pipe.lpush(JOB_IDS_KEY, job.id)
-        pipe.rpush(JOB_QUEUE_KEY, job.model_dump_json())
+        pipe.rpush(JOB_QUEUE_KEY, serialized)
         pipe.execute()
         return job
 
@@ -121,6 +122,6 @@ class RedisJobStore:
         job = Job.model_validate_json(data)
         updated = job.model_copy(update=changes)
 
-        self.client.set(key, updated.model_dump_json())
+        self.client.set(key, updated.model_dump_json(exclude_computed_fields=True))
 
         return updated
