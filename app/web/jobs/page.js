@@ -42,7 +42,7 @@ function getCurrentSeconds(job) {
     return job.progress.current_seconds;
   }
 
-  return parseCurrentTime(job.progress?.current);
+  return NaN;
 }
 
 function getEta(job) {

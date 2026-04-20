@@ -8,7 +8,7 @@ from pathvalidate import sanitize_filename
 
 from app.config import Settings
 from app.jellyfin import JellyfinClient
-from app.jobs import Job, JobStore
+from app.jobs import Job, JobStore, Progress
 from app.paths import OUTPUT_DIR
 from app.presets import Preset
 
@@ -80,7 +80,7 @@ async def enqueue_job(job: Job, settings: Settings, store: JobStore) -> Job:
     run_time_ticks = sources[0].get("RunTimeTicks")
     if run_time_ticks:
         try:
-            job.progress["duration"] = int(run_time_ticks) / 10_000_000
+            job.progress.duration = int(run_time_ticks) / 10_000_000
         except (TypeError, ValueError):
             logger.warning(
                 "Ignoring invalid RunTimeTicks for job %s: %r",

@@ -2,102 +2,149 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import selectors
-import subprocess
 from pathlib import Path
 
 import redis.asyncio
 
 from app.config import Settings, load_settings
-from app.jobs import JOB_QUEUE_KEY, Job, JobState, JobStore, get_redis_client, utcnow_iso
+from app.jobs import JOB_QUEUE_KEY, Job, JobState, JobStore, Progress, get_redis_client, utcnow_iso
 from app.paths import TRANSCODING_TEMP_DIR
 from app.transcode import build_output_path, get_ffmpeg_command
 
 logger = logging.getLogger(__name__)
 
+CANCEL_CHECK_INTERVAL = 2
+PROGRESS_UPDATE_INTERVAL = 2
 
-async def _read_ffmpeg_streams(
-    store: JobStore, job_id: str, process: subprocess.Popen, log_path: Path
-) -> int:
-    selector = selectors.DefaultSelector()
-    progress_buffer: dict[str, str] = {}
 
-    assert process.stdout is not None
-    assert process.stderr is not None
-    selector.register(process.stdout, selectors.EVENT_READ, data="stdout")
-    selector.register(process.stderr, selectors.EVENT_READ, data="stderr")
-
-    with log_path.open("ab") as log_file:
-        while selector.get_map():
+async def _check_cancel_task(store: JobStore, job_id: str, cancel_requested: asyncio.Event) -> None:
+    while not cancel_requested.is_set():
+        try:
             current_job = await store.get(job_id)
             if current_job and current_job.cancel_requested:
-                logger.info("Cancelling running job %s", job_id)
-                process.terminate()
-                try:
-                    process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
+                cancel_requested.set()
+                break
+        except Exception:
+            pass
+        await asyncio.sleep(CANCEL_CHECK_INTERVAL)
+
+
+async def _read_ffmpeg_streams(
+    store: JobStore, job_id: str, process: asyncio.subprocess.Process, log_path: Path
+) -> int:
+    progress_buffer: dict[str, str] = {}
+    buffer_lock = asyncio.Lock()
+    cancel_requested = asyncio.Event()
+    last_progress_update = 0.0
+    final_progress_sent = False
+    log_file = log_path.open("ab")
+
+    cancel_task = asyncio.create_task(_check_cancel_task(store, job_id, cancel_requested))
+
+    async def read_stream(stream: asyncio.StreamReader, is_stderr: bool) -> None:
+        nonlocal progress_buffer, last_progress_update, final_progress_sent
+        while True:
+            line = await stream.readline()
+            if not line:
+                if not is_stderr:
+                    async with buffer_lock:
+                        progress_buffer.clear()
                 break
 
-            events = selector.select(timeout=1)
-            if not events:
-                if process.poll() is not None:
-                    break
+            if is_stderr:
+                log_file.write(line)
+                log_file.flush()
                 continue
 
-            for key, _ in events:
-                stream = key.fileobj
-                line = stream.readline()
-                if not line:
-                    try:
-                        selector.unregister(stream)
-                    except Exception:
-                        pass
-                    continue
+            decoded = line.decode("utf-8", errors="replace")
+            entry = decoded.strip()
+            if not entry or "=" not in entry:
+                continue
 
-                decoded = line.decode("utf-8", errors="replace")
-                if key.data == "stderr":
-                    log_file.write(line)
-                    log_file.flush()
-                    continue
+            key_name, value = entry.split("=", 1)
 
-                entry = decoded.strip()
-                if not entry or "=" not in entry:
-                    continue
-                key_name, value = entry.split("=", 1)
+            async with buffer_lock:
                 progress_buffer[key_name] = value
 
                 if key_name != "progress":
                     continue
 
-                progress_payload: dict[str, object] = {}
+                progress_payload = Progress()
                 out_time_us = progress_buffer.get("out_time_us")
                 if out_time_us:
                     try:
-                        progress_payload["current_seconds"] = int(out_time_us) / 1_000_000
+                        progress_payload.current_seconds = int(out_time_us) / 1_000_000
                     except ValueError:
                         pass
-                if fps := progress_buffer.get("fps"):
-                    progress_payload["fps"] = fps
-                if frame := progress_buffer.get("frame"):
-                    progress_payload["frame"] = frame
 
+                fps_value = progress_buffer.get("fps")
+                frame_value = progress_buffer.get("frame")
+                if fps_value is not None:
+                    progress_payload.fps = fps_value
+                if frame_value is not None:
+                    progress_payload.frame = frame_value
+
+                speed = progress_buffer.get("speed")
+                progress_buffer.clear()
+
+            current_time = asyncio.get_running_loop().time()
+            if current_time - last_progress_update >= PROGRESS_UPDATE_INTERVAL:
                 current_job = await store.get(job_id)
-                existing_progress = (
-                    dict(current_job.progress)
-                    if current_job and isinstance(current_job.progress, dict)
-                    else {}
-                )
-                existing_progress.update(progress_payload)
+                existing_progress = current_job.progress if current_job else Progress()
+                update_data = progress_payload.model_dump(exclude_none=True)
+                merged = existing_progress.model_copy(update=update_data)
 
-                changes: dict[str, object] = {"progress": existing_progress}
-                if speed := progress_buffer.get("speed"):
+                changes: dict[str, object] = {"progress": merged}
+                if speed:
                     changes["speed"] = speed
                 await store.update(job_id, **changes)
-                progress_buffer = {}
+                last_progress_update = current_time
+                final_progress_sent = True
 
-    return process.wait()
+    try:
+        stdout_task = asyncio.create_task(
+            read_stream(process.stdout, is_stderr=False)
+        )
+        stderr_task = asyncio.create_task(
+            read_stream(process.stderr, is_stderr=True)
+        )
+
+        done, pending = await asyncio.wait(
+            [stdout_task, stderr_task, cancel_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except Exception:
+                pass
+
+        if cancel_requested.is_set():
+            logger.info("Cancelling running job %s", job_id)
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+
+        if not final_progress_sent:
+            current_job = await store.get(job_id)
+            existing_progress = current_job.progress if current_job else Progress()
+            changes = {"progress": existing_progress}
+            if speed := progress_buffer.get("speed"):
+                changes["speed"] = speed
+            await store.update(job_id, **changes)
+
+    except Exception as e:
+        logger.exception("Error in ffmpeg streams for job %s: %s", job_id, e)
+    finally:
+        log_file.close()
+
+    return_code = await process.wait()
+    return return_code
 
 
 async def _mark_failed(store: JobStore, job_id: str, message: str) -> None:
@@ -114,7 +161,6 @@ async def _mark_cancelled(store: JobStore, job_id: str, output_path: Path) -> No
     await store.update(
         job_id,
         state=JobState.CANCELLED,
-        cancel_requested=True,
         finished_at=utcnow_iso(),
         output_path=None,
     )
@@ -159,7 +205,7 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         log_path=str(log_path),
         error_message=None,
         speed="",
-        progress={},
+        progress=Progress(),
     )
 
     ffmpeg_args = [
@@ -172,11 +218,21 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         *ffmpeg_args[1:],
     ]
 
-    process = subprocess.Popen(
-        ffmpeg_args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *ffmpeg_args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as e:
+        logger.error("ffmpeg not found: %s", e)
+        await _mark_failed(store, job_id, f"ffmpeg not found: {e}")
+        return
+    except OSError as e:
+        logger.error("Failed to start ffmpeg: %s", e)
+        await _mark_failed(store, job_id, f"Failed to start ffmpeg: {e}")
+        return
+
     return_code = await _read_ffmpeg_streams(store, job_id, process, log_path)
 
     current_job = await store.get(job_id)

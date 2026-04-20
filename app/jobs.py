@@ -35,6 +35,14 @@ def utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class Progress(BaseModel):
+    model_config = {"extra": "allow"}
+    duration: Optional[float] = None
+    current_seconds: Optional[float] = None
+    fps: Optional[str] = None
+    frame: Optional[str] = None
+
+
 class Job(BaseModel):
     model_config = {"extra": "forbid"}
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -50,7 +58,7 @@ class Job(BaseModel):
     input_url: Optional[str] = None
     error_message: Optional[str] = None
     speed: str = ""
-    progress: dict[str, Any] = Field(default_factory=dict)
+    progress: Progress = Field(default_factory=Progress)
     cancel_requested: bool = False
 
     @property
