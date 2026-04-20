@@ -22,9 +22,9 @@ async def _read_ffmpeg_streams(
     selector = selectors.DefaultSelector()
     progress_buffer: dict[str, str] = {}
 
-    assert process.stdout is not None
+    # assert process.stdout is not None
     assert process.stderr is not None
-    selector.register(process.stdout, selectors.EVENT_READ, data="stdout")
+    # selector.register(process.stdout, selectors.EVENT_READ, data="stdout")
     selector.register(process.stderr, selectors.EVENT_READ, data="stderr")
 
     with log_path.open("ab") as log_file:
@@ -62,40 +62,40 @@ async def _read_ffmpeg_streams(
                     log_file.flush()
                     continue
 
-                entry = decoded.strip()
-                if not entry or "=" not in entry:
-                    continue
-                key_name, value = entry.split("=", 1)
-                progress_buffer[key_name] = value
+                # entry = decoded.strip()
+                # if not entry or "=" not in entry:
+                #     continue
+                # key_name, value = entry.split("=", 1)
+                # progress_buffer[key_name] = value
 
-                if key_name != "progress":
-                    continue
+                # if key_name != "progress":
+                #     continue
 
-                progress_payload: dict[str, object] = {}
-                out_time_us = progress_buffer.get("out_time_us")
-                if out_time_us:
-                    try:
-                        progress_payload["current_seconds"] = int(out_time_us) / 1_000_000
-                    except ValueError:
-                        pass
-                if fps := progress_buffer.get("fps"):
-                    progress_payload["fps"] = fps
-                if frame := progress_buffer.get("frame"):
-                    progress_payload["frame"] = frame
+                # progress_payload: dict[str, object] = {}
+                # out_time_us = progress_buffer.get("out_time_us")
+                # if out_time_us:
+                #     try:
+                #         progress_payload["current_seconds"] = int(out_time_us) / 1_000_000
+                #     except ValueError:
+                #         pass
+                # if fps := progress_buffer.get("fps"):
+                #     progress_payload["fps"] = fps
+                # if frame := progress_buffer.get("frame"):
+                #     progress_payload["frame"] = frame
 
-                current_job = await store.get(job_id)
-                existing_progress = (
-                    dict(current_job.progress)
-                    if current_job and isinstance(current_job.progress, dict)
-                    else {}
-                )
-                existing_progress.update(progress_payload)
+                # current_job = await store.get(job_id)
+                # existing_progress = (
+                #     dict(current_job.progress)
+                #     if current_job and isinstance(current_job.progress, dict)
+                #     else {}
+                # )
+                # existing_progress.update(progress_payload)
 
-                changes: dict[str, object] = {"progress": existing_progress}
-                if speed := progress_buffer.get("speed"):
-                    changes["speed"] = speed
-                await store.update(job_id, **changes)
-                progress_buffer = {}
+                # changes: dict[str, object] = {"progress": existing_progress}
+                # if speed := progress_buffer.get("speed"):
+                #     changes["speed"] = speed
+                # await store.update(job_id, **changes)
+                # progress_buffer = {}
 
     return process.wait()
 
@@ -158,23 +158,22 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         output_path=None,
         log_path=str(log_path),
         error_message=None,
-        speed="",
-        progress={},
+        # speed="",
+        # progress={},
     )
 
     ffmpeg_args = [
         ffmpeg_args[0],
-        "-progress",
-        "pipe:1",
-        "-nostats",
-        "-stats_period",
-        "2",
+        # "-loglevel",
+        # "quiet",
+        # "-progress",
+        # "pipe:1",
         *ffmpeg_args[1:],
     ]
 
     process = subprocess.Popen(
         ffmpeg_args,
-        stdout=subprocess.PIPE,
+        # stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
     return_code = await _read_ffmpeg_streams(store, job_id, process, log_path)
