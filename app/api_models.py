@@ -98,6 +98,8 @@ class SettingsPatch(SettingsValidationModel):
     ffmpeg_flags: list[str] | None = None
     redis_host: str | None = None
     redis_port: int | None = Field(default=None, ge=1, le=65535)
+    transcoding_temp_dir: str | None = Field(default=None, exclude=True)
+    output_dir: str | None = Field(default=None, exclude=True)
 
 
 class SettingsView(BaseModel):
