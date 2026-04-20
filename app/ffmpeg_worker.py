@@ -7,7 +7,7 @@ from pathlib import Path
 
 import redis
 
-from app.config import load_settings
+from app.config import Settings, load_settings
 from app.jobs import JOB_QUEUE_KEY, Job, JobState, RedisJobStore, utcnow_iso, get_redis_client
 from app.transcode import build_output_path, get_ffmpeg_command
 
@@ -122,8 +122,26 @@ def _run_job(store: RedisJobStore, settings, job: Job) -> None:
         logger.error("Job %s failed: %s", job_id, error_message)
 
 
-def main() -> None:
+def _load_worker_settings(previous: Settings | None = None) -> Settings:
     settings = load_settings()
+    if previous is None:
+        return settings
+
+    if settings.model_dump() != previous.model_dump():
+        logger.info(
+            "Reloaded worker settings redis=%s:%s log_level=%s output_dir=%s",
+            settings.redis_host,
+            settings.redis_port,
+            settings.log_level,
+            settings.output_dir,
+        )
+        logging.getLogger().setLevel(settings.log_level)
+
+    return settings
+
+
+def main() -> None:
+    settings = _load_worker_settings()
     logging.basicConfig(
         level=settings.log_level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -137,6 +155,7 @@ def main() -> None:
 
     while True:
         try:
+            settings = _load_worker_settings(settings)
             client = get_redis_client(settings)
             client.ping()
             store = RedisJobStore(client)
@@ -145,6 +164,7 @@ def main() -> None:
             while True:
                 try:
                     _, payload = client.blpop(JOB_QUEUE_KEY, timeout=0)
+                    settings = _load_worker_settings(settings)
                     job = Job.model_validate_json(payload)
                     _run_job(store, settings, job)
                 except redis.ConnectionError:

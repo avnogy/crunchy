@@ -8,14 +8,15 @@ import shlex
 import tempfile
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from typing import Any
+from app.logging import VALID_LOG_LEVELS
 
 logger = logging.getLogger(__name__)
 
 
 class Settings(BaseModel):
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "forbid", "validate_assignment": True}
 
     jellyfin_api_url: str = ""
     jellyfin_api_key: str = ""
@@ -23,14 +24,14 @@ class Settings(BaseModel):
     app_password: str = ""
     transcoding_temp_dir: Path = Path("/data/temp")
     output_dir: Path = Path("/data/output")
-    jobs_poll_interval_ms: int = 3000
+    jobs_poll_interval_ms: int = Field(default=3000, ge=500)
     app_host: str = "0.0.0.0"
-    app_port: int = 8000
+    app_port: int = Field(default=8000, ge=1, le=65535)
     log_level: str = "INFO"
     presets: dict[str, Any] = {}
     ffmpeg_flags: list[str] = []
     redis_host: str = "redis"
-    redis_port: int = 6379
+    redis_port: int = Field(default=6379, ge=1, le=65535)
 
     @field_validator("jellyfin_api_url", mode="before")
     @classmethod
@@ -38,6 +39,22 @@ class Settings(BaseModel):
         if isinstance(v, str):
             return v.rstrip("/")
         return v
+
+    @field_validator("app_host", "redis_host", mode="before")
+    @classmethod
+    def validate_host(cls, v: str) -> str:
+        host = str(v or "").strip()
+        if not host:
+            raise ValueError("Host is required")
+        return host
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
+        level = str(v or "INFO").upper()
+        if level not in VALID_LOG_LEVELS:
+            raise ValueError("Unsupported log level")
+        return level
 
     @field_validator("ffmpeg_flags", mode="before")
     @classmethod
@@ -73,7 +90,7 @@ def load_settings() -> Settings:
             if not settings.app_password:
                 settings.app_password = os.getenv("APP_PASSWORD", "")
             return settings
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
+        except (json.JSONDecodeError, KeyError, ValidationError, ValueError) as e:
             logger.warning("Failed to load settings from %s: %s", path, e)
 
     return Settings(
