@@ -40,7 +40,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - FFMPEG_FLAGS=${FFMPEG_FLAGS:-}
     entrypoint: ["/entrypoint.sh"]
-    command: ["python", "-m", "app.ffmpeg_worker"]
+    command: ["python", "-m", "worker.ffmpeg"]
     depends_on:
       - redis
 

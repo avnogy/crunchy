@@ -44,7 +44,7 @@ docker compose -f docker-compose.dev.yml up --build
 
 The compose setup stores app settings in `./config/settings.json` and writes finished files to `./output`.
 
-The ffmpeg worker is a separate service that only communicates through Redis. To process more jobs in parallel, scale the `ffmpeg-worker` service.
+The ffmpeg worker lives under [`worker/`](./worker) as a separate service that only communicates through Redis. To process more jobs in parallel, scale the `ffmpeg-worker` service.
 
 ## Container Releases
 

@@ -8,7 +8,7 @@ from pathlib import Path
 import redis
 
 from app.config import Settings, load_settings
-from app.jobs import JOB_QUEUE_KEY, Job, JobState, RedisJobStore, utcnow_iso, get_redis_client
+from app.jobs import JOB_QUEUE_KEY, Job, JobState, RedisJobStore, get_redis_client, utcnow_iso
 from app.transcode import build_output_path, get_ffmpeg_command
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def _mark_cancelled(store: RedisJobStore, job_id: str, output_path: Path) -> Non
     )
 
 
-def _run_job(store: RedisJobStore, settings, job: Job) -> None:
+def _run_job(store: RedisJobStore, settings: Settings, job: Job) -> None:
     job_id = job.id
     output_path = build_output_path(settings, job)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -173,12 +173,17 @@ def main() -> None:
                 except Exception as exc:
                     logger.exception("Worker failed to process job: %s", exc)
 
-        except redis.ConnectionError as e:
-            logger.warning("Could not connect to Redis at %s:%s: %s", settings.redis_host, settings.redis_port, e)
+        except redis.ConnectionError as exc:
+            logger.warning(
+                "Could not connect to Redis at %s:%s: %s",
+                settings.redis_host,
+                settings.redis_port,
+                exc,
+            )
             logger.info("Retrying in 5 seconds...")
             time.sleep(5)
-        except Exception as e:
-            logger.exception("Unexpected error in worker: %s", e)
+        except Exception as exc:
+            logger.exception("Unexpected error in worker: %s", exc)
             time.sleep(5)
 
 
