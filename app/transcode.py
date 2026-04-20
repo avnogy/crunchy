@@ -9,6 +9,7 @@ from pathvalidate import sanitize_filename
 from app.config import Settings
 from app.jellyfin import JellyfinClient
 from app.jobs import Job, RedisJobStore
+from app.paths import OUTPUT_DIR
 from app.presets import Preset
 
 logger = logging.getLogger(__name__)
@@ -19,8 +20,8 @@ def _safe_output_name(name: str) -> str:
     return sanitized or "job"
 
 
-def build_output_path(settings: Settings, job: Job) -> Path:
-    return settings.output_dir / f"{job.id}_{_safe_output_name(job.item_name)}.mp4"
+def build_output_path(job: Job) -> Path:
+    return OUTPUT_DIR / f"{job.id}_{_safe_output_name(job.item_name)}.mp4"
 
 
 def get_ffmpeg_command(
@@ -91,7 +92,7 @@ async def enqueue_job(job: Job, settings: Settings, store: RedisJobStore) -> Job
         raise ValueError("No media source ID found")
 
     input_url = _build_transcode_url(settings, job, source_id)
-    output_path = build_output_path(settings, job)
+    output_path = build_output_path(job)
     job.input_url = input_url
 
     store.add(job)

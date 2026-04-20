@@ -18,6 +18,8 @@ docker compose up
 
 Set the values you need in `.env` first.
 
+`docker-compose.yml` defaults the app and ffmpeg worker temp directory to RAM-backed `tmpfs` storage at the fixed in-container path `/data/temp`.
+
 For local development with a local image build, use:
 
 ```bash
@@ -31,8 +33,7 @@ docker compose -f docker-compose.dev.yml up --build
 | `JELLYFIN_USER_ID` | `""` | Jellyfin user ID used for library access and transcoding. |
 | `APP_PASSWORD` | `""` | Basic auth password for the fixed `admin` user. If empty on first boot, one is generated and can be found in the log output. |
 | `SETTINGS_FILE` | `/config/settings.json` | Runtime settings file path. |
-| `TRANSCODING_TEMP_DIR` | `/data/temp` | Temporary transcode output directory. |
-| `OUTPUT_DIR` | `/data/output` | Final downloaded files directory. |
+| `OUTPUT_PATH` | `./output` | Host-side path mounted to the fixed in-container output directory `/data/output`. |
 | `JOBS_POLL_INTERVAL_MS` | `3000` | UI job status polling interval. |
 | `APP_HOST` | `0.0.0.0` | App bind host. |
 | `APP_PORT` | `8000` | App bind port. |
@@ -40,9 +41,29 @@ docker compose -f docker-compose.dev.yml up --build
 | `FFMPEG_FLAGS` | `""` | Extra ffmpeg flags, space-separated. |
 | `APP_UID` | `1000` | Optional runtime UID override for the container user. |
 | `APP_GID` | `1000` | Optional runtime GID override for the container group. |
-| `CRUNCHY_IMAGE` | `ghcr.io/avnogy/crunchy:latest` | Image used by `docker-compose.yml`. |
+| `CRUNCHY_IMAGE` | `ghcr.io/avnogy/crunchy:latest` | Image used by the compose files. |
 
-The compose setup stores app settings in `./config/settings.json` and writes finished files to `./output`.
+## Worker Temp Storage
+
+The app and worker always use the fixed internal paths `/data/temp` and `/data/output`.
+
+- Default mode uses RAM-backed `tmpfs` for the worker temp directory at `/data/temp`.
+- `OUTPUT_PATH` is separate and always controls the host path for completed downloads at `/data/output`.
+
+Use RAM-backed temp storage when you want faster temporary I/O and the temp files disappearing on container restart.
+
+To keep temp files on disk instead, replace the `tmpfs` entry for `/data/temp` with a bind mount, for example:
+
+```yaml
+services:
+  ffmpeg-worker:
+    volumes:
+      - ${OUTPUT_PATH:-./output}:/data/output
+      - ./config:/config
+      - ./temp:/data/temp
+```
+
+Apply the same change to `crunchy` as well if you want the web app container to use disk-backed temp storage too.
 
 The ffmpeg worker lives under [`worker/`](./worker) as a separate service that only communicates through Redis. To process more jobs in parallel, scale the `ffmpeg-worker` service.
 

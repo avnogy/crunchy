@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from app.auth import require_basic_auth
 from app.config import ensure_app_password, load_settings
 from app.logging import setup_logging
+from app.paths import ensure_managed_directories
 from app.presets import get_effective_presets
 from app.web.home import router as home_router
 from app.web.items import router as items_router
@@ -21,8 +22,7 @@ settings = load_settings()
 setup_logging(settings.log_level)
 logger = logging.getLogger(__name__)
 ensure_app_password(settings)
-settings.transcoding_temp_dir.mkdir(parents=True, exist_ok=True)
-settings.output_dir.mkdir(parents=True, exist_ok=True)
+ensure_managed_directories()
 
 templates = Jinja2Templates(directory="app/web")
 WEB_ROOT = Path(__file__).resolve().parent / "web"

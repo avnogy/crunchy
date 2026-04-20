@@ -9,6 +9,7 @@ import redis
 
 from app.config import Settings, load_settings
 from app.jobs import JOB_QUEUE_KEY, Job, JobState, RedisJobStore, get_redis_client, utcnow_iso
+from app.paths import TRANSCODING_TEMP_DIR
 from app.transcode import build_output_path, get_ffmpeg_command
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ def _mark_cancelled(store: RedisJobStore, job_id: str, output_path: Path) -> Non
 
 def _run_job(store: RedisJobStore, settings: Settings, job: Job) -> None:
     job_id = job.id
-    output_path = build_output_path(settings, job)
+    output_path = build_output_path(job)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     existing = store.find_reusable_by_item_and_preset(job.item_id, job.preset)
@@ -129,11 +130,10 @@ def _load_worker_settings(previous: Settings | None = None) -> Settings:
 
     if settings.model_dump() != previous.model_dump():
         logger.info(
-            "Reloaded worker settings redis=%s:%s log_level=%s output_dir=%s",
+            "Reloaded worker settings redis=%s:%s log_level=%s",
             settings.redis_host,
             settings.redis_port,
             settings.log_level,
-            settings.output_dir,
         )
         logging.getLogger().setLevel(settings.log_level)
 
@@ -148,9 +148,10 @@ def main() -> None:
     )
 
     logger.info(
-        "Starting ffmpeg worker, Redis at %s:%s",
+        "Starting ffmpeg worker, Redis at %s:%s worker_temp_dir=%s",
         settings.redis_host,
         settings.redis_port,
+        TRANSCODING_TEMP_DIR,
     )
 
     while True:

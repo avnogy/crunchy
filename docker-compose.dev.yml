@@ -24,9 +24,9 @@ services:
       # Persist app settings.
       - ./config:/config
       # Store completed downloads.
-      - ./output:${OUTPUT_DIR:-/data/output}
+      - ${OUTPUT_PATH:-./output}:/data/output
     tmpfs:
-      - ${TRANSCODING_TEMP_DIR:-/data/temp}:rw,size=4g
+      - /data/temp:rw
     command:
       - uvicorn
       - app.main:app
@@ -57,12 +57,11 @@ services:
         APP_UID: ${APP_UID:-1000}
         APP_GID: ${APP_GID:-1000}
     volumes:
-      - ./output:${OUTPUT_DIR:-/data/output}
+      - ${OUTPUT_PATH:-./output}:/data/output
       - ./config:/config
-      - ${TRANSCODING_TEMP_DIR:-/data/temp}:${TRANSCODING_TEMP_DIR:-/data/temp}
+    tmpfs:
+      - /data/temp:rw
     environment:
-      - OUTPUT_DIR=${OUTPUT_DIR:-/data/output}
-      - TRANSCODING_TEMP_DIR=${TRANSCODING_TEMP_DIR:-/data/temp}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

@@ -4,15 +4,20 @@ import json
 import logging
 import os
 import secrets
-import shlex
 import tempfile
 from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from typing import Any
-from app.logging import VALID_LOG_LEVELS
+from app.api_models import (
+    normalize_host,
+    normalize_jellyfin_url,
+    normalize_log_level,
+    parse_ffmpeg_flags,
+)
 
 logger = logging.getLogger(__name__)
+LEGACY_SETTINGS_KEYS = {"transcoding_temp_dir", "output_dir"}
 
 
 class Settings(BaseModel):
@@ -22,55 +27,34 @@ class Settings(BaseModel):
     jellyfin_api_key: str = ""
     jellyfin_user_id: str = ""
     app_password: str = ""
-    transcoding_temp_dir: Path = Path("/data/temp")
-    output_dir: Path = Path("/data/output")
     jobs_poll_interval_ms: int = Field(default=3000, ge=500)
     app_host: str = "0.0.0.0"
     app_port: int = Field(default=8000, ge=1, le=65535)
     log_level: str = "INFO"
-    presets: dict[str, Any] = {}
-    ffmpeg_flags: list[str] = []
+    presets: dict[str, Any] = Field(default_factory=dict)
+    ffmpeg_flags: list[str] = Field(default_factory=list)
     redis_host: str = "redis"
     redis_port: int = Field(default=6379, ge=1, le=65535)
 
     @field_validator("jellyfin_api_url", mode="before")
     @classmethod
-    def strip_trailing_slash(cls, v: str) -> str:
-        if isinstance(v, str):
-            return v.rstrip("/")
-        return v
+    def strip_trailing_slash(cls, value: Any) -> str:
+        return normalize_jellyfin_url(value)
 
     @field_validator("app_host", "redis_host", mode="before")
     @classmethod
-    def validate_host(cls, v: str) -> str:
-        host = str(v or "").strip()
-        if not host:
-            raise ValueError("Host is required")
-        return host
+    def validate_host(cls, value: Any) -> str:
+        return normalize_host(value)
 
     @field_validator("log_level", mode="before")
     @classmethod
-    def validate_log_level(cls, v: str) -> str:
-        level = str(v or "INFO").upper()
-        if level not in VALID_LOG_LEVELS:
-            raise ValueError("Unsupported log level")
-        return level
+    def validate_log_level(cls, value: Any) -> str:
+        return normalize_log_level(value)
 
     @field_validator("ffmpeg_flags", mode="before")
     @classmethod
-    def parse_ffmpeg_flags(cls, v: list[str] | str | None) -> list[str]:
-        if isinstance(v, list):
-            return [str(flag) for flag in v if str(flag).strip()]
-        if isinstance(v, str):
-            return shlex.split(v)
-        return []
-
-    @field_validator("transcoding_temp_dir", "output_dir", mode="before")
-    @classmethod
-    def parse_path(cls, v: Path | str) -> Path:
-        if isinstance(v, Path):
-            return v
-        return Path(v)
+    def validate_ffmpeg_flags(cls, value: list[str] | str | None) -> list[str]:
+        return parse_ffmpeg_flags(value)
 
 
 def _get_settings_path() -> Path:
@@ -81,12 +65,19 @@ def generate_app_password(length: int = 24) -> str:
     return secrets.token_urlsafe(length)[:length]
 
 
+def _strip_legacy_settings_keys(data: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in data.items() if key not in LEGACY_SETTINGS_KEYS}
+
+
 def load_settings() -> Settings:
     path = _get_settings_path()
 
     if path.exists():
         try:
-            settings = Settings.model_validate(json.loads(path.read_text()))
+            raw_settings = json.loads(path.read_text())
+            if isinstance(raw_settings, dict):
+                raw_settings = _strip_legacy_settings_keys(raw_settings)
+            settings = Settings.model_validate(raw_settings)
             if not settings.app_password:
                 settings.app_password = os.getenv("APP_PASSWORD", "")
             return settings
@@ -98,12 +89,11 @@ def load_settings() -> Settings:
         jellyfin_api_key=os.getenv("JELLYFIN_API_KEY", ""),
         jellyfin_user_id=os.getenv("JELLYFIN_USER_ID", ""),
         app_password=os.getenv("APP_PASSWORD", ""),
-        transcoding_temp_dir=Path(os.getenv("TRANSCODING_TEMP_DIR", "/data/temp")),
-        output_dir=Path(os.getenv("OUTPUT_DIR", "/data/output")),
         jobs_poll_interval_ms=int(os.getenv("JOBS_POLL_INTERVAL_MS", "3000")),
         app_host=os.getenv("APP_HOST", "0.0.0.0"),
         app_port=int(os.getenv("APP_PORT", "8000")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
+        ffmpeg_flags=os.getenv("FFMPEG_FLAGS", ""),
         redis_host=os.getenv("REDIS_HOST", "redis"),
         redis_port=int(os.getenv("REDIS_PORT", "6379")),
     )
@@ -113,9 +103,6 @@ def save_settings(settings: Settings) -> None:
     path = _get_settings_path()
     data = settings.model_dump()
     data["app_password"] = settings.app_password
-    for key, value in data.items():
-        if isinstance(value, Path):
-            data[key] = str(value)
     serialized = json.dumps(data, indent=2)
     temp_path: Path | None = None
     try:
