@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-import redis
+import redis.asyncio
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
@@ -87,8 +87,8 @@ async def redis_health(request: Request):
     settings = request.app.state.settings
     try:
         client = get_redis_client(settings)
-        client.ping()
-    except redis.RedisError as exc:
+        await client.ping()
+    except redis.asyncio.RedisError as exc:
         logger.warning("Redis health check failed: %s", exc)
         raise HTTPException(status_code=503, detail="Redis unavailable") from exc
 

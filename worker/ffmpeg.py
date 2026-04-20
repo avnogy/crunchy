@@ -1,22 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import selectors
 import subprocess
-import time
 from pathlib import Path
 
-import redis
+import redis.asyncio
 
 from app.config import Settings, load_settings
-from app.jobs import JOB_QUEUE_KEY, Job, JobState, RedisJobStore, get_redis_client, utcnow_iso
+from app.jobs import JOB_QUEUE_KEY, Job, JobState, JobStore, get_redis_client, utcnow_iso
 from app.paths import TRANSCODING_TEMP_DIR
 from app.transcode import build_output_path, get_ffmpeg_command
 
 logger = logging.getLogger(__name__)
 
-def _read_ffmpeg_streams(
-    store: RedisJobStore, job_id: str, process: subprocess.Popen, log_path: Path
+
+async def _read_ffmpeg_streams(
+    store: JobStore, job_id: str, process: subprocess.Popen, log_path: Path
 ) -> int:
     selector = selectors.DefaultSelector()
     progress_buffer: dict[str, str] = {}
@@ -28,7 +29,7 @@ def _read_ffmpeg_streams(
 
     with log_path.open("ab") as log_file:
         while selector.get_map():
-            current_job = store.get(job_id)
+            current_job = await store.get(job_id)
             if current_job and current_job.cancel_requested:
                 logger.info("Cancelling running job %s", job_id)
                 process.terminate()
@@ -82,7 +83,7 @@ def _read_ffmpeg_streams(
                 if frame := progress_buffer.get("frame"):
                     progress_payload["frame"] = frame
 
-                current_job = store.get(job_id)
+                current_job = await store.get(job_id)
                 existing_progress = (
                     dict(current_job.progress)
                     if current_job and isinstance(current_job.progress, dict)
@@ -93,14 +94,14 @@ def _read_ffmpeg_streams(
                 changes: dict[str, object] = {"progress": existing_progress}
                 if speed := progress_buffer.get("speed"):
                     changes["speed"] = speed
-                store.update(job_id, **changes)
+                await store.update(job_id, **changes)
                 progress_buffer = {}
 
     return process.wait()
 
 
-def _mark_failed(store: RedisJobStore, job_id: str, message: str) -> None:
-    store.update(
+async def _mark_failed(store: JobStore, job_id: str, message: str) -> None:
+    await store.update(
         job_id,
         state=JobState.FAILED,
         error_message=message,
@@ -108,9 +109,9 @@ def _mark_failed(store: RedisJobStore, job_id: str, message: str) -> None:
     )
 
 
-def _mark_cancelled(store: RedisJobStore, job_id: str, output_path: Path) -> None:
+async def _mark_cancelled(store: JobStore, job_id: str, output_path: Path) -> None:
     output_path.unlink(missing_ok=True)
-    store.update(
+    await store.update(
         job_id,
         state=JobState.CANCELLED,
         cancel_requested=True,
@@ -119,15 +120,15 @@ def _mark_cancelled(store: RedisJobStore, job_id: str, output_path: Path) -> Non
     )
 
 
-def _run_job(store: RedisJobStore, settings: Settings, job: Job) -> None:
+async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
     job_id = job.id
     output_path = build_output_path(job)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    existing = store.find_reusable_by_item_and_preset(job.item_id, job.preset)
+    existing = await store.find_reusable_by_item_and_preset(job.item_id, job.preset)
     if existing and existing.state == JobState.COMPLETED and existing.is_download_available():
         logger.info("Reusing completed job %s for item %s", existing.id, job.item_name)
-        store.update(
+        await store.update(
             job_id,
             state=JobState.COMPLETED,
             output_path=existing.output_path,
@@ -137,7 +138,7 @@ def _run_job(store: RedisJobStore, settings: Settings, job: Job) -> None:
 
     if job.state == JobState.CANCELLED or job.cancel_requested:
         logger.info("Skipping cancelled queued job %s", job_id)
-        _mark_cancelled(store, job_id, output_path)
+        await _mark_cancelled(store, job_id, output_path)
         return
 
     log_path = output_path.with_suffix(".log")
@@ -149,7 +150,7 @@ def _run_job(store: RedisJobStore, settings: Settings, job: Job) -> None:
     )
     logger.info("Running job %s -> %s", job_id, output_path)
 
-    store.update(
+    await store.update(
         job_id,
         state=JobState.RUNNING,
         started_at=utcnow_iso(),
@@ -176,15 +177,15 @@ def _run_job(store: RedisJobStore, settings: Settings, job: Job) -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    return_code = _read_ffmpeg_streams(store, job_id, process, log_path)
+    return_code = await _read_ffmpeg_streams(store, job_id, process, log_path)
 
-    current_job = store.get(job_id)
+    current_job = await store.get(job_id)
     if current_job and current_job.cancel_requested:
-        _mark_cancelled(store, job_id, output_path)
+        await _mark_cancelled(store, job_id, output_path)
         return
 
     if return_code == 0 and output_path.exists():
-        store.update(
+        await store.update(
             job_id,
             state=JobState.COMPLETED,
             finished_at=utcnow_iso(),
@@ -196,7 +197,7 @@ def _run_job(store: RedisJobStore, settings: Settings, job: Job) -> None:
 
     output_path.unlink(missing_ok=True)
     error_message = f"ffmpeg exited with code {return_code}"
-    _mark_failed(store, job_id, error_message)
+    await _mark_failed(store, job_id, error_message)
     logger.error("Job %s failed: %s", job_id, error_message)
 
 
@@ -217,7 +218,7 @@ def _load_worker_settings(previous: Settings | None = None) -> Settings:
     return settings
 
 
-def main() -> None:
+async def main() -> None:
     settings = _load_worker_settings()
     logging.basicConfig(
         level=settings.log_level,
@@ -235,23 +236,27 @@ def main() -> None:
         try:
             settings = _load_worker_settings(settings)
             client = get_redis_client(settings)
-            client.ping()
-            store = RedisJobStore(client)
+            await client.ping()
+            store = JobStore(client)
             logger.info("Connected to Redis at %s:%s", settings.redis_host, settings.redis_port)
 
             while True:
                 try:
-                    _, payload = client.blpop(JOB_QUEUE_KEY, timeout=0)
+                    result = await client.blpop(JOB_QUEUE_KEY, timeout=0)
+                    if result is None:
+                        continue
+                    _, payload = result
                     settings = _load_worker_settings(settings)
                     job = Job.model_validate_json(payload)
-                    _run_job(store, settings, job)
-                except redis.ConnectionError:
+                    await _run_job(store, settings, job)
+                except redis.asyncio.ConnectionError:
                     logger.warning("Lost connection to Redis, reconnecting...")
+                    await client.close()
                     break
                 except Exception as exc:
                     logger.exception("Worker failed to process job: %s", exc)
 
-        except redis.ConnectionError as exc:
+        except redis.asyncio.ConnectionError as exc:
             logger.warning(
                 "Could not connect to Redis at %s:%s: %s",
                 settings.redis_host,
@@ -259,11 +264,11 @@ def main() -> None:
                 exc,
             )
             logger.info("Retrying in 5 seconds...")
-            time.sleep(5)
+            await asyncio.sleep(5)
         except Exception as exc:
             logger.exception("Unexpected error in worker: %s", exc)
-            time.sleep(5)
+            await asyncio.sleep(5)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

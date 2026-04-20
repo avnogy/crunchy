@@ -8,7 +8,7 @@ from pathvalidate import sanitize_filename
 
 from app.config import Settings
 from app.jellyfin import JellyfinClient
-from app.jobs import Job, RedisJobStore
+from app.jobs import Job, JobStore
 from app.paths import OUTPUT_DIR
 from app.presets import Preset
 
@@ -78,7 +78,7 @@ def _build_transcode_url(settings: Settings, job: Job, source_id: str) -> str:
     return f"{url}?{urlencode(params)}"
 
 
-async def enqueue_job(job: Job, settings: Settings, store: RedisJobStore) -> Job:
+async def enqueue_job(job: Job, settings: Settings, store: JobStore) -> Job:
     logger.info("Enqueuing job %s: %s", job.id, job.item_name)
 
     client = JellyfinClient(settings)
@@ -106,6 +106,6 @@ async def enqueue_job(job: Job, settings: Settings, store: RedisJobStore) -> Job
     output_path = build_output_path(job)
     job.input_url = input_url
 
-    store.add(job)
+    await store.add(job)
     logger.info("Job %s enqueued successfully to Redis", job.id)
     return job
