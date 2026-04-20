@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.jobs import Job, JobState, RedisJobStore, new_job, utcnow_iso, get_redis_client
+from app.transcode import enqueue_job
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
