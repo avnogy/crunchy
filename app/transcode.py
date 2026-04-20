@@ -91,6 +91,17 @@ async def enqueue_job(job: Job, settings: Settings, store: RedisJobStore) -> Job
     if not source_id:
         raise ValueError("No media source ID found")
 
+    run_time_ticks = sources[0].get("RunTimeTicks")
+    if run_time_ticks:
+        try:
+            job.progress["duration"] = int(run_time_ticks) / 10_000_000
+        except (TypeError, ValueError):
+            logger.warning(
+                "Ignoring invalid RunTimeTicks for job %s: %r",
+                job.id,
+                run_time_ticks,
+            )
+
     input_url = _build_transcode_url(settings, job, source_id)
     output_path = build_output_path(job)
     job.input_url = input_url

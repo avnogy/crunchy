@@ -1,11 +1,12 @@
-from pydantic import BaseModel, Field
+import json
+import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
-import json
-import uuid
+
 import redis
+from pydantic import BaseModel, Field, computed_field
 
 JOB_QUEUE_KEY = "jobs:queue"
 JOB_IDS_KEY = "jobs:ids"
@@ -47,12 +48,17 @@ class Job(BaseModel):
     input_url: Optional[str] = None
     error_message: Optional[str] = None
     speed: str = ""
-    progress: dict[str, Any] = {}
+    progress: dict[str, Any] = Field(default_factory=dict)
     cancel_requested: bool = False
 
     @property
     def preset_signature(self) -> str:
         return json.dumps(self.preset, sort_keys=True, separators=(",", ":"))
+
+    @computed_field
+    @property
+    def download_available(self) -> bool:
+        return self.is_download_available()
 
     def is_download_available(self) -> bool:
         return bool(self.output_path and Path(self.output_path).exists())

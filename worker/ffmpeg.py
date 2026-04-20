@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import selectors
 import subprocess
 import time
 from pathlib import Path
@@ -13,6 +14,89 @@ from app.paths import TRANSCODING_TEMP_DIR
 from app.transcode import build_output_path, get_ffmpeg_command
 
 logger = logging.getLogger(__name__)
+
+def _read_ffmpeg_streams(
+    store: RedisJobStore, job_id: str, process: subprocess.Popen, log_path: Path
+) -> int:
+    selector = selectors.DefaultSelector()
+    progress_buffer: dict[str, str] = {}
+
+    assert process.stdout is not None
+    assert process.stderr is not None
+    selector.register(process.stdout, selectors.EVENT_READ, data="stdout")
+    selector.register(process.stderr, selectors.EVENT_READ, data="stderr")
+
+    with log_path.open("ab") as log_file:
+        while selector.get_map():
+            current_job = store.get(job_id)
+            if current_job and current_job.cancel_requested:
+                logger.info("Cancelling running job %s", job_id)
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+                break
+
+            events = selector.select(timeout=1)
+            if not events:
+                if process.poll() is not None:
+                    break
+                continue
+
+            for key, _ in events:
+                stream = key.fileobj
+                line = stream.readline()
+                if not line:
+                    try:
+                        selector.unregister(stream)
+                    except Exception:
+                        pass
+                    continue
+
+                decoded = line.decode("utf-8", errors="replace")
+                if key.data == "stderr":
+                    log_file.write(line)
+                    log_file.flush()
+                    continue
+
+                entry = decoded.strip()
+                if not entry or "=" not in entry:
+                    continue
+                key_name, value = entry.split("=", 1)
+                progress_buffer[key_name] = value
+
+                if key_name != "progress":
+                    continue
+
+                progress_payload: dict[str, object] = {}
+                out_time_us = progress_buffer.get("out_time_us")
+                if out_time_us:
+                    try:
+                        progress_payload["current_seconds"] = int(out_time_us) / 1_000_000
+                    except ValueError:
+                        pass
+                if fps := progress_buffer.get("fps"):
+                    progress_payload["fps"] = fps
+                if frame := progress_buffer.get("frame"):
+                    progress_payload["frame"] = frame
+
+                current_job = store.get(job_id)
+                existing_progress = (
+                    dict(current_job.progress)
+                    if current_job and isinstance(current_job.progress, dict)
+                    else {}
+                )
+                existing_progress.update(progress_payload)
+
+                changes: dict[str, object] = {"progress": existing_progress}
+                if speed := progress_buffer.get("speed"):
+                    changes["speed"] = speed
+                store.update(job_id, **changes)
+                progress_buffer = {}
+
+    return process.wait()
 
 
 def _mark_failed(store: RedisJobStore, job_id: str, message: str) -> None:
@@ -73,54 +157,47 @@ def _run_job(store: RedisJobStore, settings: Settings, job: Job) -> None:
         output_path=None,
         log_path=str(log_path),
         error_message=None,
+        speed="",
+        progress={},
     )
 
-    with log_path.open("ab") as log_file:
-        process = subprocess.Popen(
-            ffmpeg_args,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
+    ffmpeg_args = [
+        ffmpeg_args[0],
+        "-progress",
+        "pipe:1",
+        "-nostats",
+        "-stats_period",
+        "2",
+        *ffmpeg_args[1:],
+    ]
+
+    process = subprocess.Popen(
+        ffmpeg_args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return_code = _read_ffmpeg_streams(store, job_id, process, log_path)
+
+    current_job = store.get(job_id)
+    if current_job and current_job.cancel_requested:
+        _mark_cancelled(store, job_id, output_path)
+        return
+
+    if return_code == 0 and output_path.exists():
+        store.update(
+            job_id,
+            state=JobState.COMPLETED,
+            finished_at=utcnow_iso(),
+            output_path=str(output_path),
+            error_message=None,
         )
+        logger.info("Completed job %s", job_id)
+        return
 
-        cancelled = False
-        while True:
-            return_code = process.poll()
-            if return_code is not None:
-                break
-
-            current_job = store.get(job_id)
-            if current_job and current_job.cancel_requested:
-                logger.info("Cancelling running job %s", job_id)
-                cancelled = True
-                process.terminate()
-                try:
-                    process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
-                break
-
-            time.sleep(1)
-
-        if cancelled:
-            _mark_cancelled(store, job_id, output_path)
-            return
-
-        if process.returncode == 0 and output_path.exists():
-            store.update(
-                job_id,
-                state=JobState.COMPLETED,
-                finished_at=utcnow_iso(),
-                output_path=str(output_path),
-                error_message=None,
-            )
-            logger.info("Completed job %s", job_id)
-            return
-
-        output_path.unlink(missing_ok=True)
-        error_message = f"ffmpeg exited with code {process.returncode}"
-        _mark_failed(store, job_id, error_message)
-        logger.error("Job %s failed: %s", job_id, error_message)
+    output_path.unlink(missing_ok=True)
+    error_message = f"ffmpeg exited with code {return_code}"
+    _mark_failed(store, job_id, error_message)
+    logger.error("Job %s failed: %s", job_id, error_message)
 
 
 def _load_worker_settings(previous: Settings | None = None) -> Settings:

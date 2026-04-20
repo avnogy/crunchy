@@ -37,12 +37,20 @@ function parseCurrentTime(value) {
   return Number.NaN;
 }
 
+function getCurrentSeconds(job) {
+  if (typeof job.progress?.current_seconds === "number") {
+    return job.progress.current_seconds;
+  }
+
+  return parseCurrentTime(job.progress?.current);
+}
+
 function getEta(job) {
-  if (!job.progress?.current || !job.progress?.duration || !job.speed) {
+  if (!job.progress?.duration || !job.speed) {
     return "-";
   }
 
-  const currentSecs = parseCurrentTime(job.progress.current);
+  const currentSecs = getCurrentSeconds(job);
   const speed = Number.parseFloat(job.speed);
   if (!Number.isFinite(currentSecs) || currentSecs <= 0 || speed <= 0) {
     return "-";
@@ -54,8 +62,8 @@ function getEta(job) {
   return etaMinutes > 0 ? `${etaMinutes}m` : "-";
 }
 
-function formatCurrentTime(value) {
-  const totalSeconds = parseCurrentTime(value);
+function formatCurrentTime(job) {
+  const totalSeconds = getCurrentSeconds(job);
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) {
     return "-";
   }
@@ -123,7 +131,7 @@ function renderJobCard(job) {
   const expanded = expandedJobs.has(job.id);
   const eta = getEta(job);
   const showProgress = job.state === "running" || job.state === "queued";
-  const currentTime = formatCurrentTime(job.progress?.current);
+  const currentTime = formatCurrentTime(job);
   const totalDuration = job.progress?.duration
     ? formatDuration(job.progress.duration)
     : "-";
