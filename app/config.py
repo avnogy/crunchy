@@ -7,20 +7,18 @@ import secrets
 import tempfile
 from pathlib import Path
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import Field, ValidationError
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Any
 from app.api_models import (
-    normalize_host,
-    normalize_jellyfin_url,
-    normalize_log_level,
-    parse_ffmpeg_flags,
+    SettingsValidationModel,
 )
 
 logger = logging.getLogger(__name__)
 LEGACY_SETTINGS_KEYS = {"transcoding_temp_dir", "output_dir"}
 
 
-class Settings(BaseModel):
+class Settings(SettingsValidationModel):
     model_config = {"extra": "forbid", "validate_assignment": True}
 
     jellyfin_api_url: str = ""
@@ -36,25 +34,28 @@ class Settings(BaseModel):
     redis_host: str = "redis"
     redis_port: int = Field(default=6379, ge=1, le=65535)
 
-    @field_validator("jellyfin_api_url", mode="before")
-    @classmethod
-    def strip_trailing_slash(cls, value: Any) -> str:
-        return normalize_jellyfin_url(value)
 
-    @field_validator("app_host", "redis_host", mode="before")
-    @classmethod
-    def validate_host(cls, value: Any) -> str:
-        return normalize_host(value)
+class EnvSettings(SettingsValidationModel, BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="",
+        extra="ignore",
+    )
 
-    @field_validator("log_level", mode="before")
-    @classmethod
-    def validate_log_level(cls, value: Any) -> str:
-        return normalize_log_level(value)
-
-    @field_validator("ffmpeg_flags", mode="before")
-    @classmethod
-    def validate_ffmpeg_flags(cls, value: list[str] | str | None) -> list[str]:
-        return parse_ffmpeg_flags(value)
+    jellyfin_api_url: str = Field(default="", alias="JELLYFIN_API_URL")
+    jellyfin_api_key: str = Field(default="", alias="JELLYFIN_API_KEY")
+    jellyfin_user_id: str = Field(default="", alias="JELLYFIN_USER_ID")
+    app_password: str = Field(default="", alias="APP_PASSWORD")
+    jobs_poll_interval_ms: int = Field(
+        default=3000,
+        ge=500,
+        alias="JOBS_POLL_INTERVAL_MS",
+    )
+    app_host: str = Field(default="0.0.0.0", alias="APP_HOST")
+    app_port: int = Field(default=8000, ge=1, le=65535, alias="APP_PORT")
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    ffmpeg_flags: list[str] = Field(default_factory=list, alias="FFMPEG_FLAGS")
+    redis_host: str = Field(default="redis", alias="REDIS_HOST")
+    redis_port: int = Field(default=6379, ge=1, le=65535, alias="REDIS_PORT")
 
 
 def _get_settings_path() -> Path:
@@ -69,6 +70,11 @@ def _strip_legacy_settings_keys(data: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in data.items() if key not in LEGACY_SETTINGS_KEYS}
 
 
+def _load_env_settings() -> Settings:
+    env_settings = EnvSettings()
+    return Settings.model_validate(env_settings.model_dump())
+
+
 def load_settings() -> Settings:
     path = _get_settings_path()
 
@@ -79,24 +85,12 @@ def load_settings() -> Settings:
                 raw_settings = _strip_legacy_settings_keys(raw_settings)
             settings = Settings.model_validate(raw_settings)
             if not settings.app_password:
-                settings.app_password = os.getenv("APP_PASSWORD", "")
+                settings.app_password = _load_env_settings().app_password
             return settings
         except (json.JSONDecodeError, KeyError, ValidationError, ValueError) as e:
             logger.warning("Failed to load settings from %s: %s", path, e)
 
-    return Settings(
-        jellyfin_api_url=os.getenv("JELLYFIN_API_URL", "").rstrip("/"),
-        jellyfin_api_key=os.getenv("JELLYFIN_API_KEY", ""),
-        jellyfin_user_id=os.getenv("JELLYFIN_USER_ID", ""),
-        app_password=os.getenv("APP_PASSWORD", ""),
-        jobs_poll_interval_ms=int(os.getenv("JOBS_POLL_INTERVAL_MS", "3000")),
-        app_host=os.getenv("APP_HOST", "0.0.0.0"),
-        app_port=int(os.getenv("APP_PORT", "8000")),
-        log_level=os.getenv("LOG_LEVEL", "INFO"),
-        ffmpeg_flags=os.getenv("FFMPEG_FLAGS", ""),
-        redis_host=os.getenv("REDIS_HOST", "redis"),
-        redis_port=int(os.getenv("REDIS_PORT", "6379")),
-    )
+    return _load_env_settings()
 
 
 def save_settings(settings: Settings) -> None:

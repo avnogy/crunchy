@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
-from pathlib import Path
 
 import redis
 from fastapi import APIRouter, HTTPException, Request
@@ -12,7 +10,11 @@ from app.api_models import FfmpegPreviewPayload, SettingsPayload
 from app.config import Settings, save_settings
 from app.jobs import get_redis_client
 from app.logging import VALID_LOG_LEVELS, setup_logging
-from app.paths import OUTPUT_DIR, TRANSCODING_TEMP_DIR
+from app.paths import (
+    OUTPUT_DIR,
+    TRANSCODING_TEMP_DIR,
+    clear_directory_contents,
+)
 from app.presets import NEW_PRESET_TEMPLATE, get_effective_presets
 from app.transcode import get_ffmpeg_command
 
@@ -48,21 +50,6 @@ def build_settings_response(settings: Settings, presets: dict) -> dict:
     data["new_preset_template"] = NEW_PRESET_TEMPLATE
     data["valid_log_levels"] = list(VALID_LOG_LEVELS)
     return data
-
-
-def clear_directory_contents(directory: Path) -> int:
-    if not directory.exists():
-        directory.mkdir(parents=True, exist_ok=True)
-        return 0
-
-    removed = 0
-    for child in directory.iterdir():
-        if child.is_dir() and not child.is_symlink():
-            shutil.rmtree(child)
-        else:
-            child.unlink(missing_ok=True)
-        removed += 1
-    return removed
 
 
 def validate_ffmpeg_flags(flags: list[str]) -> list[str]:

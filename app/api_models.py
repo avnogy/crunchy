@@ -36,7 +36,37 @@ def parse_ffmpeg_flags(value: list[str] | str | None) -> list[str]:
     return []
 
 
-class SettingsPayload(BaseModel):
+class SettingsValidationModel(BaseModel):
+    @field_validator("jellyfin_api_url", mode="before", check_fields=False)
+    @classmethod
+    def validate_jellyfin_api_url(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        return normalize_jellyfin_url(value)
+
+    @field_validator("app_host", "redis_host", mode="before", check_fields=False)
+    @classmethod
+    def validate_host(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        return normalize_host(value)
+
+    @field_validator("log_level", mode="before", check_fields=False)
+    @classmethod
+    def validate_log_level(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        return normalize_log_level(value)
+
+    @field_validator("ffmpeg_flags", mode="before", check_fields=False)
+    @classmethod
+    def validate_ffmpeg_flags(cls, value: list[str] | str | None) -> list[str] | None:
+        if value is None:
+            return None
+        return parse_ffmpeg_flags(value)
+
+
+class SettingsPayload(SettingsValidationModel):
     model_config = {"extra": "forbid"}
 
     jellyfin_api_url: str | None = None
@@ -52,44 +82,18 @@ class SettingsPayload(BaseModel):
     redis_host: str | None = None
     redis_port: int | None = Field(default=None, ge=1, le=65535)
 
-    @field_validator("jellyfin_api_url", mode="before")
-    @classmethod
-    def validate_jellyfin_api_url(cls, value: Any) -> str | None:
-        if value is None:
-            return None
-        return normalize_jellyfin_url(value)
 
-    @field_validator("app_host", "redis_host", mode="before")
-    @classmethod
-    def validate_host(cls, value: Any) -> str | None:
-        if value is None:
-            return None
-        return normalize_host(value)
-
-    @field_validator("log_level", mode="before")
-    @classmethod
-    def validate_log_level(cls, value: Any) -> str | None:
-        if value is None:
-            return None
-        return normalize_log_level(value)
-
-    @field_validator("ffmpeg_flags", mode="before")
-    @classmethod
-    def validate_ffmpeg_flags(cls, value: list[str] | str | None) -> list[str] | None:
-        if value is None:
-            return None
-        return parse_ffmpeg_flags(value)
-
-
-class FfmpegPreviewPayload(BaseModel):
-    model_config = {"extra": "forbid"}
-
-    ffmpeg_flags: list[str] = Field(default_factory=list)
-
-    @field_validator("ffmpeg_flags", mode="before")
+class FfmpegFlagsValidationModel(BaseModel):
+    @field_validator("ffmpeg_flags", mode="before", check_fields=False)
     @classmethod
     def validate_ffmpeg_flags(cls, value: list[str] | str | None) -> list[str]:
         return parse_ffmpeg_flags(value)
+
+
+class FfmpegPreviewPayload(FfmpegFlagsValidationModel):
+    model_config = {"extra": "forbid"}
+
+    ffmpeg_flags: list[str] = Field(default_factory=list)
 
 
 class CreateJobPayload(BaseModel):
