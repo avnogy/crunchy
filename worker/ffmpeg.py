@@ -195,7 +195,8 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         await _mark_cancelled(store, job_id, output_path)
         return
 
-    log_path = output_path.with_suffix(".log")
+    log_path = TRANSCODING_TEMP_DIR / f"{job_id}.log"
+    TRANSCODING_TEMP_DIR.mkdir(parents=True, exist_ok=True)
     ffmpeg_args = get_ffmpeg_command(
         settings,
         input_url=job.input_url or "",
