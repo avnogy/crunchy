@@ -6,9 +6,10 @@ import os
 import secrets
 import tempfile
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import ValidationError
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, ValidationError
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from app.api_models import (
     SettingsModel,
 )
@@ -27,6 +28,7 @@ class EnvSettings(SettingsModel, BaseSettings):
         extra="ignore",
         alias_generator=str.upper,
     )
+    ffmpeg_flags: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
 
 def _get_settings_path() -> Path:
