@@ -100,9 +100,9 @@ async def settings_page(request: Request):
     templates = request.app.state.templates
     logger.debug("Rendering settings page")
     return templates.TemplateResponse(
+        request,
         "settings/index.html",
         {
-            "request": request,
             "active_page": "settings",
             "valid_log_levels": VALID_LOG_LEVELS,
             "transcoding_temp_dir": str(TRANSCODING_TEMP_DIR),

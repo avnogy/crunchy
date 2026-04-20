@@ -83,9 +83,9 @@ async def item_detail(request: Request, item_id: str):
         len(children),
     )
     return templates.TemplateResponse(
+        request,
         "items/index.html",
         {
-            "request": request,
             "item": item,
             "children": [
                 normalize_item(c, settings.jellyfin_api_url) for c in children

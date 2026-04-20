@@ -169,9 +169,9 @@ async def jobs_page(request: Request):
         settings.jobs_poll_interval_ms,
     )
     return templates.TemplateResponse(
+        request,
         "jobs/index.html",
         {
-            "request": request,
             "active_page": "jobs",
             "jobs_poll_interval_ms": settings.jobs_poll_interval_ms,
         },
