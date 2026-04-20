@@ -7,6 +7,7 @@ import redis
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
+from app.api_models import CreateJobPayload
 from app.jobs import Job, JobState, RedisJobStore, new_job, utcnow_iso, get_redis_client
 from app.transcode import enqueue_job
 
@@ -27,14 +28,14 @@ def _get_job(store: RedisJobStore, job_id: str) -> Job:
 
 
 @router.post("/api/jobs")
-async def create_job(request: Request, data: dict):
+async def create_job(request: Request, data: CreateJobPayload):
     presets = request.app.state.presets
     settings = request.app.state.settings
-    item_id = data.get("item_id")
-    item_name = data.get("item_name")
-    preset_key = data.get("preset", "720p-low")
+    item_id = data.item_id
+    item_name = data.item_name
+    preset_key = data.preset
 
-    if not item_id or not item_name or preset_key not in presets:
+    if preset_key not in presets:
         logger.warning(
             "Rejected invalid job creation request item_id=%s preset=%s",
             item_id,

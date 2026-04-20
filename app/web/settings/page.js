@@ -3,51 +3,6 @@ let presets = {};
 let storedApiKeyLength = 0;
 let storedAppPasswordLength = 0;
 
-function setFieldInvalid(input, invalid) {
-  if (!input) {
-    return;
-  }
-
-  input.classList.toggle("border-red-500", invalid);
-  input.classList.toggle("focus:ring-red-500", invalid);
-  input.classList.toggle("focus:border-red-500", invalid);
-  input.classList.toggle("border-gray-200", !invalid);
-  input.classList.toggle("focus:ring-blue-500", !invalid);
-  input.classList.toggle("focus:border-transparent", !invalid);
-}
-
-function validateRequiredJellyfinFields() {
-  const apiKeyInput = document.getElementById("jellyfin-api-key");
-  const userIdInput = document.getElementById("jellyfin-user-id");
-  const apiKeyHelp = document.getElementById("jellyfin-api-key-help");
-  const requiredMessage = document.getElementById("jellyfin-required-message");
-
-  const apiKeyMissing = storedApiKeyLength === 0 && !apiKeyInput?.value.trim();
-  const userIdMissing = !userIdInput?.value.trim();
-
-  setFieldInvalid(apiKeyInput, apiKeyMissing);
-  setFieldInvalid(userIdInput, userIdMissing);
-
-  if (apiKeyHelp) {
-    apiKeyHelp.textContent =
-      storedApiKeyLength > 0
-      ? `Leave blank to keep current (${storedApiKeyLength} chars set)`
-      : "Required";
-    apiKeyHelp.className = apiKeyMissing
-      ? "text-xs text-red-600 mt-1"
-      : "text-xs text-gray-500 mt-1";
-  }
-
-  if (requiredMessage) {
-    requiredMessage.classList.toggle(
-      "hidden",
-      !(apiKeyMissing || userIdMissing),
-    );
-  }
-
-  return !(apiKeyMissing || userIdMissing);
-}
-
 async function clearDirectory(endpoint, label, button) {
   if (
     !window.confirm(
@@ -182,7 +137,6 @@ async function loadSettings() {
           ? `Leave blank to keep current (${storedAppPasswordLength} chars set)`
           : "Required";
     }
-    validateRequiredJellyfinFields();
     updateRedisHealthMessage("Uses the currently saved settings.", "text-sm text-gray-500");
   } catch (e) {
     console.error("Failed to load settings:", e);
@@ -210,21 +164,11 @@ document
       return;
     }
 
-    if (!validateRequiredJellyfinFields()) {
-      if (result) {
-        result.textContent = "API key and User ID are required.";
-        result.className = "text-sm text-red-600";
-      }
-      return;
-    }
-
     const data = {
       jellyfin_api_url: formData.get("jellyfin_api_url"),
       jellyfin_api_key: formData.get("jellyfin_api_key"),
       jellyfin_user_id: formData.get("jellyfin_user_id"),
       app_password: formData.get("app_password"),
-      transcoding_temp_dir: formData.get("transcoding_temp_dir"),
-      output_dir: formData.get("output_dir"),
       app_host: formData.get("app_host"),
       app_port: formData.get("app_port"),
       redis_host: formData.get("redis_host"),
@@ -420,14 +364,6 @@ document
       event.currentTarget,
     );
   });
-
-document.getElementById("jellyfin-api-key")?.addEventListener("input", () => {
-  validateRequiredJellyfinFields();
-});
-
-document.getElementById("jellyfin-user-id")?.addEventListener("input", () => {
-  validateRequiredJellyfinFields();
-});
 
 loadSettings();
 renderPresets();
