@@ -30,30 +30,16 @@ def get_ffmpeg_command(
     output_path: str = "/data/output/output.mp4",
     preset: dict | None = None,
 ) -> list[str]:
-    resolved = Preset(**(preset or {}))
     args = [
         "ffmpeg",
         "-y",
         "-i",
         input_url,
-        "-c:v",
-        resolved.videoCodec,
-        "-c:a",
-        resolved.audioCodec,
+        "-c",
+        "copy",
         "-movflags",
         "+faststart",
     ]
-
-    video_bitrate = resolved.videoBitrate
-    audio_bitrate = resolved.audioBitrate
-    max_height = resolved.maxHeight
-
-    if video_bitrate > 0:
-        args.extend(["-b:v", str(video_bitrate)])
-    if audio_bitrate > 0:
-        args.extend(["-b:a", str(audio_bitrate)])
-    if max_height > 0:
-        args.extend(["-vf", f"scale=-2:{max_height}"])
 
     args.extend(settings.ffmpeg_flags)
     args.append(output_path)
