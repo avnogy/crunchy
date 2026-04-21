@@ -43,14 +43,14 @@ def get_ffmpeg_command(
         "info",
         "-report",
         "-progress",
-        progress_file,
+        str(progress_file),
         "-nostats",
         "-stats_period",
         "2",
     ]
 
     args.extend(settings.ffmpeg_flags)
-    args.append(output_path)
+    args.append(str(output_path))
     return args
 
 
