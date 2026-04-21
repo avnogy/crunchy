@@ -19,6 +19,8 @@ docker compose up
 
 Set the values you need in `.env` first.
 
+`docker-compose.yml` now uses a **shared RAM-backed tmpfs volume** (`shared_temp`) for the internal path `/data/temp`. Both the web app and the ffmpeg worker mount this same temporary filesystem, so files such as job logs are immediately visible to the API.
+
 For local development with a local image build, use:
 
 ```bash
@@ -32,8 +34,7 @@ docker compose -f docker-compose.dev.yml up --build
 | `JELLYFIN_USER_ID` | `""` | Jellyfin user ID used for library access and transcoding. |
 | `APP_PASSWORD` | `""` | Basic auth password for the fixed `admin` user. If empty on first boot, one is generated and can be found in the log output. |
 | `SETTINGS_FILE` | `/config/settings.json` | Runtime settings file path. |
-| `TRANSCODING_TEMP_DIR` | `/data/temp` | Temporary transcode output directory. |
-| `OUTPUT_DIR` | `/data/output` | Final downloaded files directory. |
+| `OUTPUT_PATH` | `./output` | Host-side path mounted to the fixed in-container output directory `/data/output`. |
 | `JOBS_POLL_INTERVAL_MS` | `3000` | UI job status polling interval. |
 | `APP_HOST` | `0.0.0.0` | App bind host. |
 | `APP_PORT` | `8000` | App bind port. |
@@ -41,11 +42,28 @@ docker compose -f docker-compose.dev.yml up --build
 | `FFMPEG_FLAGS` | `""` | Extra ffmpeg flags, space-separated. |
 | `APP_UID` | `1000` | Optional runtime UID override for the container user. |
 | `APP_GID` | `1000` | Optional runtime GID override for the container group. |
-| `CRUNCHY_IMAGE` | `ghcr.io/avnogy/crunchy:latest` | Image used by `docker-compose.yml`. |
+| `CRUNCHY_IMAGE` | `ghcr.io/avnogy/crunchy:latest` | Image used by the compose files. |
 
-The compose setup stores app settings in `./config/settings.json` and writes finished files to `./output`.
+## Shared Temp Storage
 
-The ffmpeg worker is a separate service that only communicates through Redis. To process more jobs in parallel, scale the `ffmpeg-worker` service.
+The app and the worker always use the fixed internal paths `/data/temp` and `/data/output`.
+
+- By default a **RAM-backed `tmpfs` volume** named `shared_temp` is mounted at `/data/temp`. This volume is shared between the `crunchy` and `ffmpeg-worker` services, allowing temporary files (e.g., ffmpeg logs) to be accessed by both containers.
+- `OUTPUT_PATH` controls the host path for completed downloads at `/data/output` and remains unchanged.
+
+Use RAM-backed temp storage when you want faster temporary I/O and want the temporary files to disappear on container restart.
+
+If you prefer the temporary files to be stored on disk instead, replace the `shared_temp:/data/temp` mount in both services with a bind mount, for example:
+
+```yaml
+
+volumes:
+  - ${OUTPUT_PATH:-./output}:/data/output
+  - ./config:/config
+  - ./temp:/data/temp
+```
+
+The ffmpeg worker lives under [`worker/`](./worker) as a separate service that only communicates through Redis. To process more jobs in parallel, scale the `ffmpeg-worker` service.
 
 ## Container Releases
 

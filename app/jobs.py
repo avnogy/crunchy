@@ -1,21 +1,23 @@
-from pydantic import BaseModel, Field
+import json
+import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
-import json
-import uuid
-import redis
+
+import redis.asyncio
+from pydantic import BaseModel, Field, computed_field
 
 JOB_QUEUE_KEY = "jobs:queue"
 JOB_IDS_KEY = "jobs:ids"
 
 
-def get_redis_client(settings) -> redis.Redis:
-    return redis.Redis(
+def get_redis_client(settings) -> redis.asyncio.Redis:
+    return redis.asyncio.Redis(
         host=settings.redis_host,
         port=settings.redis_port,
-        decode_responses=True
+        decode_responses=True,
+        socket_connect_timeout=5,
     )
 
 
@@ -30,6 +32,14 @@ class JobState(str, Enum):
 
 def utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+class Progress(BaseModel):
+    model_config = {"extra": "allow"}
+    duration: Optional[float] = None
+    current_seconds: Optional[float] = None
+    fps: Optional[str] = None
+    frame: Optional[str] = None
 
 
 class Job(BaseModel):
@@ -47,12 +57,17 @@ class Job(BaseModel):
     input_url: Optional[str] = None
     error_message: Optional[str] = None
     speed: str = ""
-    progress: dict[str, Any] = {}
+    progress: Progress = Field(default_factory=Progress)
     cancel_requested: bool = False
 
     @property
     def preset_signature(self) -> str:
         return json.dumps(self.preset, sort_keys=True, separators=(",", ":"))
+
+    @computed_field
+    @property
+    def download_available(self) -> bool:
+        return self.is_download_available()
 
     def is_download_available(self) -> bool:
         return bool(self.output_path and Path(self.output_path).exists())
@@ -66,35 +81,36 @@ def new_job(item_id: str, item_name: str, preset: dict[str, Any]) -> Job:
     )
 
 
-class RedisJobStore:
-    def __init__(self, client: redis.Redis) -> None:
+class JobStore:
+    def __init__(self, client: redis.asyncio.Redis) -> None:
         self.client = client
 
-    def add(self, job: Job) -> Job:
+    async def add(self, job: Job) -> Job:
         pipe = self.client.pipeline()
-        pipe.set(f"job:{job.id}", job.model_dump_json())
+        serialized = job.model_dump_json(exclude_computed_fields=True)
+        pipe.set(f"job:{job.id}", serialized)
         pipe.lpush(JOB_IDS_KEY, job.id)
-        pipe.rpush(JOB_QUEUE_KEY, job.model_dump_json())
-        pipe.execute()
+        pipe.rpush(JOB_QUEUE_KEY, serialized)
+        await pipe.execute()
         return job
 
-    def get(self, job_id: str) -> Job | None:
-        data = self.client.get(f"job:{job_id}")
+    async def get(self, job_id: str) -> Job | None:
+        data = await self.client.get(f"job:{job_id}")
         return Job.model_validate_json(data) if data else None
 
-    def list(self) -> list[Job]:
-        job_ids = self.client.lrange(JOB_IDS_KEY, 0, -1)
+    async def list(self) -> list[Job]:
+        job_ids = await self.client.lrange(JOB_IDS_KEY, 0, -1)
         if not job_ids:
             return []
         keys = [f"job:{jid}" for jid in job_ids]
-        values = self.client.mget(keys)
+        values = await self.client.mget(keys)
         return [Job.model_validate_json(v) for v in values if v]
 
-    def find_reusable_by_item_and_preset(
+    async def find_reusable_by_item_and_preset(
         self, item_id: str, preset: dict[str, Any]
     ) -> Job | None:
         signature = json.dumps(preset, sort_keys=True, separators=(",", ":"))
-        for job in self.list():
+        for job in await self.list():
             if job.item_id != item_id:
                 continue
             if job.preset_signature != signature:
@@ -105,16 +121,16 @@ class RedisJobStore:
                 return job
         return None
 
-    def update(self, job_id: str, **changes: Any) -> Job | None:
+    async def update(self, job_id: str, **changes: Any) -> Job | None:
         key = f"job:{job_id}"
 
-        data = self.client.get(key)
+        data = await self.client.get(key)
         if not data:
             return None
 
         job = Job.model_validate_json(data)
         updated = job.model_copy(update=changes)
 
-        self.client.set(key, updated.model_dump_json())
+        await self.client.set(key, updated.model_dump_json(exclude_computed_fields=True))
 
         return updated

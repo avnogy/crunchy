@@ -3,23 +3,24 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import redis
+import redis.asyncio
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from app.jobs import Job, JobState, RedisJobStore, new_job, utcnow_iso, get_redis_client
+from app.api_models import CreateJobPayload
+from app.jobs import Job, JobState, JobStore, new_job, utcnow_iso, get_redis_client
 from app.transcode import enqueue_job
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def get_store(settings) -> RedisJobStore:
-    return RedisJobStore(get_redis_client(settings))
+def get_store(settings) -> JobStore:
+    return JobStore(get_redis_client(settings))
 
 
-def _get_job(store: RedisJobStore, job_id: str) -> Job:
-    job = store.get(job_id)
+async def _get_job(store: JobStore, job_id: str) -> Job:
+    job = await store.get(job_id)
     if not job:
         logger.warning("Requested missing job %s", job_id)
         raise HTTPException(status_code=404, detail="Job not found")
@@ -27,14 +28,14 @@ def _get_job(store: RedisJobStore, job_id: str) -> Job:
 
 
 @router.post("/api/jobs")
-async def create_job(request: Request, data: dict):
-    presets = request.app.state.presets
+async def create_job(request: Request, data: CreateJobPayload):
     settings = request.app.state.settings
-    item_id = data.get("item_id")
-    item_name = data.get("item_name")
-    preset_key = data.get("preset", "720p-low")
+    presets = settings.presets
+    item_id = data.item_id
+    item_name = data.item_name
+    preset_key = data.preset
 
-    if not item_id or not item_name or preset_key not in presets:
+    if preset_key not in presets:
         logger.warning(
             "Rejected invalid job creation request item_id=%s preset=%s",
             item_id,
@@ -45,7 +46,7 @@ async def create_job(request: Request, data: dict):
     preset = presets[preset_key]
     try:
         store = get_store(settings)
-        existing_job = store.find_reusable_by_item_and_preset(item_id, preset)
+        existing_job = await store.find_reusable_by_item_and_preset(item_id, preset)
         if existing_job:
             logger.info(
                 "Reusing existing job %s for item_id=%s preset=%s state=%s",
@@ -61,7 +62,7 @@ async def create_job(request: Request, data: dict):
 
         job = new_job(item_id=item_id, item_name=item_name, preset=preset)
         await enqueue_job(job, settings, store)
-    except redis.RedisError as exc:
+    except redis.asyncio.RedisError as exc:
         logger.exception("Redis failure while creating job for item_id=%s", item_id)
         raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
     except Exception as exc:
@@ -77,8 +78,8 @@ async def create_job(request: Request, data: dict):
 async def list_jobs(request: Request):
     settings = request.app.state.settings
     try:
-        jobs = [j.model_dump() for j in get_store(settings).list()]
-    except redis.RedisError as exc:
+        jobs = [j.model_dump() for j in await get_store(settings).list()]
+    except redis.asyncio.RedisError as exc:
         logger.exception("Redis failure while listing jobs")
         raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
     logger.debug("Listing %d job(s)", len(jobs))
@@ -89,8 +90,8 @@ async def list_jobs(request: Request):
 async def get_job(request: Request, job_id: str):
     settings = request.app.state.settings
     try:
-        job = _get_job(get_store(settings), job_id)
-    except redis.RedisError as exc:
+        job = await _get_job(get_store(settings), job_id)
+    except redis.asyncio.RedisError as exc:
         logger.exception("Redis failure while loading job %s", job_id)
         raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
     logger.debug("Returning job %s state=%s", job_id, job.state.value)
@@ -102,23 +103,20 @@ async def cancel_job(request: Request, job_id: str):
     settings = request.app.state.settings
     try:
         store = get_store(settings)
-        job = _get_job(store, job_id)
-    except redis.RedisError as exc:
+        job = await _get_job(store, job_id)
+    except redis.asyncio.RedisError as exc:
         logger.exception("Redis failure while cancelling job %s", job_id)
         raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
     if job.state not in (JobState.QUEUED, JobState.RUNNING):
         logger.warning("Rejecting cancel for job %s", job_id)
         raise HTTPException(status_code=400, detail="Cannot cancel")
 
-    if job.state == JobState.QUEUED:
-        job = store.update(
-            job_id,
-            state=JobState.CANCELLED,
-            cancel_requested=True,
-            finished_at=utcnow_iso(),
-        )
-    else:
-        job = store.update(job_id, cancel_requested=True)
+    job = await store.update(
+        job_id,
+        state=JobState.CANCELLED,
+        cancel_requested=True,
+        finished_at=utcnow_iso(),
+    )
 
     logger.info("Cancelled job %s", job_id)
     return JSONResponse({"job": job.model_dump()})
@@ -128,8 +126,8 @@ async def cancel_job(request: Request, job_id: str):
 async def download_job(request: Request, job_id: str):
     settings = request.app.state.settings
     try:
-        job = _get_job(get_store(settings), job_id)
-    except redis.RedisError as exc:
+        job = await _get_job(get_store(settings), job_id)
+    except redis.asyncio.RedisError as exc:
         logger.exception("Redis failure while loading download for job %s", job_id)
         raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
     if job.state != JobState.COMPLETED or not job.is_download_available():
@@ -144,19 +142,20 @@ async def download_job(request: Request, job_id: str):
     )
 
 
-@router.get("/jobs/{job_id}/log")
-async def get_job_log(request: Request, job_id: str):
+@router.get("/api/jobs/{job_id}/log")
+async def get_job_log_api(request: Request, job_id: str):
     settings = request.app.state.settings
     try:
-        job = _get_job(get_store(settings), job_id)
-    except redis.RedisError as exc:
+        job = await _get_job(get_store(settings), job_id)
+    except redis.asyncio.RedisError as exc:
         logger.exception("Redis failure while loading log for job %s", job_id)
         raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
     if not job.log_path or not Path(job.log_path).exists():
         logger.warning("Log requested for unavailable job %s", job_id)
         raise HTTPException(status_code=404, detail="Log not found")
     logger.info("Serving log for job %s", job_id)
-    return FileResponse(job.log_path, media_type="text/plain")
+    headers = {"Cache-Control": "no-store"}
+    return FileResponse(job.log_path, media_type="text/plain", headers=headers)
 
 
 @router.get("/jobs")
@@ -168,9 +167,9 @@ async def jobs_page(request: Request):
         settings.jobs_poll_interval_ms,
     )
     return templates.TemplateResponse(
+        request,
         "jobs/index.html",
         {
-            "request": request,
             "active_page": "jobs",
             "jobs_poll_interval_ms": settings.jobs_poll_interval_ms,
         },

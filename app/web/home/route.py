@@ -30,6 +30,7 @@ async def home(request: Request):
         items = []
 
     return templates.TemplateResponse(
+        request,
         "home/index.html",
-        {"request": request, "library_items": items, "active_page": "home"},
+        {"library_items": items, "active_page": "home"},
     )
