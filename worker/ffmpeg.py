@@ -110,8 +110,9 @@ async def _read_ffmpeg_streams(
         stderr_task = asyncio.create_task(read_stderr())
         progress_task = asyncio.create_task(read_progress())
 
+        process_wait_task = asyncio.create_task(process.wait())
         done, pending = await asyncio.wait(
-            [stderr_task, progress_task, cancel_task],
+            [stderr_task, progress_task, cancel_task, process_wait_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
 
