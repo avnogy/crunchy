@@ -97,7 +97,7 @@ function renderActions(job) {
     ? `<a href="/api/jobs/${job.id}/download" class="inline-flex items-center justify-center bg-green-600 text-white w-10 h-10 rounded-lg hover:bg-green-700 transition" title="Download" aria-label="Download">${renderIcon("download")}</a>`
     : `<button type="button" disabled class="inline-flex items-center justify-center bg-gray-200 text-gray-400 w-10 h-10 rounded-lg cursor-not-allowed" title="Download unavailable" aria-label="Download unavailable">${renderIcon("download")}</button>`;
   const renderLogLink = () =>
-    `<a href="/jobs/${job.id}/log" target="_blank" class="inline-flex items-center justify-center border border-blue-200 text-blue-600 w-10 h-10 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition" title="View log" aria-label="View log">${renderIcon("file-text")}</a>`;
+    `<a href="/api/jobs/${job.id}/log" target="_blank" rel="noopener" class="inline-flex items-center justify-center border border-blue-200 text-blue-600 w-10 h-10 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition" title="View log" aria-label="View log">${renderIcon("file-text")}</a>`;
   const cancelButton = `<button type="button" data-cancel-job="${job.id}" class="inline-flex items-center justify-center bg-red-600 text-white w-10 h-10 rounded-lg hover:bg-red-700 transition ml-auto" title="Cancel job" aria-label="Cancel job">${renderIcon("x")}</button>`;
 
   if (job.state === "completed") {

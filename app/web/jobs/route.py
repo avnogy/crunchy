@@ -111,15 +111,12 @@ async def cancel_job(request: Request, job_id: str):
         logger.warning("Rejecting cancel for job %s", job_id)
         raise HTTPException(status_code=400, detail="Cannot cancel")
 
-    if job.state == JobState.QUEUED:
-        job = await store.update(
-            job_id,
-            state=JobState.CANCELLED,
-            cancel_requested=True,
-            finished_at=utcnow_iso(),
-        )
-    else:
-        job = await store.update(job_id, cancel_requested=True)
+    job = await store.update(
+        job_id,
+        state=JobState.CANCELLED,
+        cancel_requested=True,
+        finished_at=utcnow_iso(),
+    )
 
     logger.info("Cancelled job %s", job_id)
     return JSONResponse({"job": job.model_dump()})
@@ -145,8 +142,8 @@ async def download_job(request: Request, job_id: str):
     )
 
 
-@router.get("/jobs/{job_id}/log")
-async def get_job_log(request: Request, job_id: str):
+@router.get("/api/jobs/{job_id}/log")
+async def get_job_log_api(request: Request, job_id: str):
     settings = request.app.state.settings
     try:
         job = await _get_job(get_store(settings), job_id)
@@ -157,7 +154,8 @@ async def get_job_log(request: Request, job_id: str):
         logger.warning("Log requested for unavailable job %s", job_id)
         raise HTTPException(status_code=404, detail="Log not found")
     logger.info("Serving log for job %s", job_id)
-    return FileResponse(job.log_path, media_type="text/plain")
+    headers = {"Cache-Control": "no-store"}
+    return FileResponse(job.log_path, media_type="text/plain", headers=headers)
 
 
 @router.get("/jobs")
