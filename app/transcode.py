@@ -46,7 +46,7 @@ def get_ffmpeg_command(
         str(progress_file),
         "-nostats",
         "-stats_period",
-        "2",
+        str(settings.jobs_poll_interval_ms / 1000),
     ]
 
     args.extend(settings.ffmpeg_flags)

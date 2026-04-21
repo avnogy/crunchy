@@ -24,7 +24,6 @@ from app.transcode import build_output_path, get_ffmpeg_command
 logger = logging.getLogger(__name__)
 
 CANCEL_CHECK_INTERVAL = 2.0
-PROGRESS_UPDATE_INTERVAL = 2.0
 
 
 async def _read_ffmpeg_streams(
@@ -35,12 +34,7 @@ async def _read_ffmpeg_streams(
     progress_file: Path,
     temp_output_path: Path,
 ) -> int:
-    progress_buffer: dict[str, str] = {}
-    buffer_lock = asyncio.Lock()
     cancel_requested = asyncio.Event()
-    last_progress_update = 0.0
-    final_progress_sent = False
-    progress_file_size = 0
 
     async def _cancel_watcher() -> None:
         while not cancel_requested.is_set():
@@ -48,68 +42,60 @@ async def _read_ffmpeg_streams(
                 current_job = await store.get(job_id)
                 if current_job and current_job.cancel_requested:
                     cancel_requested.set()
+                    if process.returncode is None:
+                        process.terminate()
                     break
             except Exception:
                 pass
             await asyncio.sleep(CANCEL_CHECK_INTERVAL)
 
     async def _progress_reader() -> None:
-        nonlocal progress_file_size, last_progress_update, final_progress_sent
+        processed_lines = 0
         while True:
             if process.returncode is not None:
                 break
-
-            if progress_file.exists():
-                content = progress_file.read_text()
-                if len(content) > progress_file_size:
-                    new_content = content[progress_file_size:]
-                    progress_file_size = len(content)
-
-                    for line in new_content.splitlines():
-                        if not line or "=" not in line:
-                            continue
-                        key_name, value = line.split("=", 1)
-                        async with buffer_lock:
-                            progress_buffer[key_name] = value
-
-                            if key_name != "progress":
-                                continue
-
-                            progress_payload = Progress()
-                            if out_time_us := progress_buffer.get("out_time_us"):
-                                try:
-                                    progress_payload.current_seconds = (
-                                        int(out_time_us) / 1_000_000
-                                    )
-                                except ValueError:
-                                    pass
-                            if fps := progress_buffer.get("fps"):
-                                progress_payload.fps = fps
-                            if frame := progress_buffer.get("frame"):
-                                progress_payload.frame = frame
-
-                            speed = progress_buffer.get("speed")
-                            progress_buffer.clear()
-
-                        now = asyncio.get_running_loop().time()
-                        if now - last_progress_update >= PROGRESS_UPDATE_INTERVAL:
-                            current_job = await store.get(job_id)
-                            existing = (
-                                current_job.progress if current_job else Progress()
-                            )
-                            merged = existing.model_copy(
-                                update=progress_payload.model_dump(exclude_none=True)
-                            )
-                            changes: dict[str, object] = {"progress": merged}
-                            if speed:
-                                changes["speed"] = speed
-                            await store.update(job_id, **changes)
-                            last_progress_update = now
-                            final_progress_sent = True
-            try:
-                await asyncio.sleep(0.5)
-            except asyncio.CancelledError:
+            cur_job = await store.get(job_id)
+            if not cur_job or cur_job.state != JobState.RUNNING:
                 break
+
+            if not progress_file.exists():
+                await asyncio.sleep(0.5)
+                continue
+
+            lines = progress_file.read_text().splitlines()
+            new_lines = lines[processed_lines:]
+            processed_lines = len(lines)
+
+            progress_updates: dict[str, object] = {}
+            speed_update: str | None = None
+
+            for line in new_lines:
+                if "=" not in line:
+                    continue
+                key, val = line.split("=", 1)
+
+                if key == "out_time_us":
+                    try:
+                        progress_updates["current_seconds"] = int(val) / 1_000_000
+                    except ValueError:
+                        pass
+                elif key == "fps":
+                    progress_updates["fps"] = val
+                elif key == "speed":
+                    speed_update = val
+
+            updates: dict[str, object] = {}
+            if progress_updates:
+                existing = cur_job.progress if cur_job else Progress()
+                merged = existing.model_copy(update=progress_updates)
+                updates["progress"] = merged
+            if speed_update is not None:
+                updates["speed"] = speed_update
+
+            if updates:
+                await store.update(job_id, **updates)
+
+            await asyncio.sleep(0.5)
 
     async with asyncio.TaskGroup() as tg:
         cancel_task = tg.create_task(_cancel_watcher())
@@ -137,16 +123,7 @@ async def _read_ffmpeg_streams(
             job_id,
             state=JobState.CANCELLED,
             finished_at=utcnow_iso(),
-            output_path=None,
         )
-
-    if not final_progress_sent:
-        current_job = await store.get(job_id)
-        existing_progress = current_job.progress if current_job else Progress()
-        changes = {"progress": existing_progress}
-        if speed := progress_buffer.get("speed"):
-            changes["speed"] = speed
-        await store.update(job_id, **changes)
 
     return_code = process.returncode or 0
     return return_code
@@ -167,7 +144,6 @@ async def _mark_cancelled(store: JobStore, job_id: str, temp_output_path: Path) 
         job_id,
         state=JobState.CANCELLED,
         finished_at=utcnow_iso(),
-        output_path=None,
     )
 
 
@@ -261,7 +237,6 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
                 state=JobState.COMPLETED,
                 finished_at=utcnow_iso(),
                 output_path=str(output_path),
-                error_message=None,
             )
         except Exception as e:
             logger.exception("Failed to set COMPLETED state for %s: %s", job_id, e)
