@@ -26,7 +26,7 @@ def build_output_path(job: Job) -> Path:
 
 def get_ffmpeg_command(
     settings: Settings,
-    input_url: str = "https://jellyfin.example/stream.m3u8",
+    input_url: str = "https://jellyfin.example/main.m3u8",
     output_path: str = "/data/output/output.mp4",
     preset: dict | None = None,
 ) -> list[str]:
