@@ -3,51 +3,6 @@ let presets = {};
 let storedApiKeyLength = 0;
 let storedAppPasswordLength = 0;
 
-function setFieldInvalid(input, invalid) {
-  if (!input) {
-    return;
-  }
-
-  input.classList.toggle("border-red-500", invalid);
-  input.classList.toggle("focus:ring-red-500", invalid);
-  input.classList.toggle("focus:border-red-500", invalid);
-  input.classList.toggle("border-gray-200", !invalid);
-  input.classList.toggle("focus:ring-blue-500", !invalid);
-  input.classList.toggle("focus:border-transparent", !invalid);
-}
-
-function validateRequiredJellyfinFields() {
-  const apiKeyInput = document.getElementById("jellyfin-api-key");
-  const userIdInput = document.getElementById("jellyfin-user-id");
-  const apiKeyHelp = document.getElementById("jellyfin-api-key-help");
-  const requiredMessage = document.getElementById("jellyfin-required-message");
-
-  const apiKeyMissing = storedApiKeyLength === 0 && !apiKeyInput?.value.trim();
-  const userIdMissing = !userIdInput?.value.trim();
-
-  setFieldInvalid(apiKeyInput, apiKeyMissing);
-  setFieldInvalid(userIdInput, userIdMissing);
-
-  if (apiKeyHelp) {
-    apiKeyHelp.textContent =
-      storedApiKeyLength > 0
-        ? `Leave blank to keep current (${storedApiKeyLength} chars set)`
-        : "Required";
-    apiKeyHelp.className = apiKeyMissing
-      ? "text-xs text-red-600 mt-1"
-      : "text-xs text-gray-500 mt-1";
-  }
-
-  if (requiredMessage) {
-    requiredMessage.classList.toggle(
-      "hidden",
-      !(apiKeyMissing || userIdMissing),
-    );
-  }
-
-  return !(apiKeyMissing || userIdMissing);
-}
-
 async function clearDirectory(endpoint, label, button) {
   if (
     !window.confirm(
@@ -94,7 +49,8 @@ function renderPresets() {
 
   Object.entries(presets).forEach(([key, preset]) => {
     const div = document.createElement("div");
-    div.className = "flex gap-4 items-start p-4 bg-gray-50 rounded-lg";
+    div.className =
+      "flex gap-4 items-start p-4 bg-gray-50 rounded-lg";
     div.innerHTML = `
             <div class="flex-1 space-y-2">
                 <input type="text" data-preset-key="${key}" data-field="name" value="${preset.name}" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Name">
@@ -181,10 +137,19 @@ async function loadSettings() {
           ? `Leave blank to keep current (${storedAppPasswordLength} chars set)`
           : "Required";
     }
-    validateRequiredJellyfinFields();
+    updateRedisHealthMessage("Uses the currently saved settings.", "text-sm text-gray-500");
   } catch (e) {
     console.error("Failed to load settings:", e);
   }
+}
+
+function updateRedisHealthMessage(message, className) {
+  const result = document.getElementById("redis-health-result");
+  if (!result) {
+    return;
+  }
+  result.textContent = message;
+  result.className = className;
 }
 
 document
@@ -195,11 +160,7 @@ document
     const formData = new FormData(form);
     const result = document.getElementById("save-result");
 
-    if (!validateRequiredJellyfinFields()) {
-      if (result) {
-        result.textContent = "API key and User ID are required.";
-        result.className = "text-sm text-red-600";
-      }
+    if (!form.reportValidity()) {
       return;
     }
 
@@ -208,14 +169,11 @@ document
       jellyfin_api_key: formData.get("jellyfin_api_key"),
       jellyfin_user_id: formData.get("jellyfin_user_id"),
       app_password: formData.get("app_password"),
-      transcoding_temp_dir: formData.get("transcoding_temp_dir"),
-      output_dir: formData.get("output_dir"),
       app_host: formData.get("app_host"),
-      app_port: parseInt(formData.get("app_port"), 10) || 8000,
-      jobs_poll_interval_ms: Math.max(
-        500,
-        parseInt(formData.get("jobs_poll_interval_ms"), 10) || 3000,
-      ),
+      app_port: formData.get("app_port"),
+      redis_host: formData.get("redis_host"),
+      redis_port: formData.get("redis_port"),
+      jobs_poll_interval_ms: formData.get("jobs_poll_interval_ms"),
       log_level: formData.get("log_level"),
       presets,
       ffmpeg_flags: formData.get("ffmpeg_flags") || "",
@@ -262,9 +220,14 @@ document
         if (appPasswordHelp) {
           appPasswordHelp.textContent = `Leave blank to keep current (${storedAppPasswordLength} chars set)`;
         }
+        updateRedisHealthMessage(
+          "Saved. Redis connectivity check uses the saved values.",
+          "text-sm text-gray-500",
+        );
         renderPresets();
       } else {
-        result.textContent = "Error saving";
+        const error = await resp.json().catch(() => null);
+        result.textContent = error?.detail || "Error saving";
         result.className = "text-sm text-red-600";
       }
     } catch (e) {
@@ -341,9 +304,46 @@ async function updatePreview() {
   }
 }
 
+async function checkRedisHealth(button) {
+  const originalText = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Checking...";
+  }
+  updateRedisHealthMessage("Checking saved Redis settings...", "text-sm text-gray-500");
+
+  try {
+    const resp = await fetch("/api/redis-health");
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok) {
+      throw new Error(data?.detail || "Redis unavailable");
+    }
+    updateRedisHealthMessage(
+      "Redis is reachable with the saved host and port.",
+      "text-sm text-green-600",
+    );
+  } catch (error) {
+    updateRedisHealthMessage(
+      "Redis check failed for the saved host and port.",
+      "text-sm text-red-600",
+    );
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
 document
   .querySelector('[name="ffmpeg_flags"]')
   ?.addEventListener("input", updatePreview);
+
+document
+  .getElementById("check-redis-health")
+  ?.addEventListener("click", (event) => {
+    checkRedisHealth(event.currentTarget);
+  });
 
 document
   .getElementById("clear-temp-dir")
@@ -364,14 +364,6 @@ document
       event.currentTarget,
     );
   });
-
-document.getElementById("jellyfin-api-key")?.addEventListener("input", () => {
-  validateRequiredJellyfinFields();
-});
-
-document.getElementById("jellyfin-user-id")?.addEventListener("input", () => {
-  validateRequiredJellyfinFields();
-});
 
 loadSettings();
 renderPresets();

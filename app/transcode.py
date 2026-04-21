@@ -8,7 +8,8 @@ from pathvalidate import sanitize_filename
 
 from app.config import Settings
 from app.jellyfin import JellyfinClient
-from app.jobs import Job, RedisJobStore
+from app.jobs import Job, JobStore, Progress
+from app.paths import OUTPUT_DIR, TRANSCODING_TEMP_DIR
 from app.presets import Preset
 
 logger = logging.getLogger(__name__)
@@ -19,43 +20,37 @@ def _safe_output_name(name: str) -> str:
     return sanitized or "job"
 
 
-def build_output_path(settings: Settings, job: Job) -> Path:
-    return settings.output_dir / f"{job.id}_{_safe_output_name(job.item_name)}.mp4"
+def build_output_path(job: Job) -> Path:
+    return OUTPUT_DIR / f"{job.id}_{_safe_output_name(job.item_name)}.mp4"
 
 
 def get_ffmpeg_command(
     settings: Settings,
-    input_url: str = "https://jellyfin.example/stream.m3u8",
-    output_path: str = "/data/output/output.mp4",
-    preset: dict | None = None,
+    input_url: str = "https://jellyfin.example/main.m3u8?args=values",
+    output_path: str = OUTPUT_DIR / "output.mp4",
+    progress_file: str = TRANSCODING_TEMP_DIR / "preview.progress",
 ) -> list[str]:
-    resolved = Preset(**(preset or {}))
     args = [
         "ffmpeg",
         "-y",
         "-i",
         input_url,
-        "-c:v",
-        resolved.videoCodec,
-        "-c:a",
-        resolved.audioCodec,
+        "-c",
+        "copy",
         "-movflags",
         "+faststart",
+        "-loglevel",
+        "info",
+        "-report",
+        "-progress",
+        str(progress_file),
+        "-nostats",
+        "-stats_period",
+        str(settings.jobs_poll_interval_ms / 1000),
     ]
 
-    video_bitrate = resolved.videoBitrate
-    audio_bitrate = resolved.audioBitrate
-    max_height = resolved.maxHeight
-
-    if video_bitrate > 0:
-        args.extend(["-b:v", str(video_bitrate)])
-    if audio_bitrate > 0:
-        args.extend(["-b:a", str(audio_bitrate)])
-    if max_height > 0:
-        args.extend(["-vf", f"scale=-2:{max_height}"])
-
     args.extend(settings.ffmpeg_flags)
-    args.append(output_path)
+    args.append(str(output_path))
     return args
 
 
@@ -77,7 +72,7 @@ def _build_transcode_url(settings: Settings, job: Job, source_id: str) -> str:
     return f"{url}?{urlencode(params)}"
 
 
-async def enqueue_job(job: Job, settings: Settings, store: RedisJobStore) -> Job:
+async def enqueue_job(job: Job, settings: Settings, store: JobStore) -> Job:
     logger.info("Enqueuing job %s: %s", job.id, job.item_name)
 
     client = JellyfinClient(settings)
@@ -90,10 +85,21 @@ async def enqueue_job(job: Job, settings: Settings, store: RedisJobStore) -> Job
     if not source_id:
         raise ValueError("No media source ID found")
 
+    run_time_ticks = sources[0].get("RunTimeTicks")
+    if run_time_ticks:
+        try:
+            job.progress.duration = int(run_time_ticks) / 10_000_000
+        except (TypeError, ValueError):
+            logger.warning(
+                "Ignoring invalid RunTimeTicks for job %s: %r",
+                job.id,
+                run_time_ticks,
+            )
+
     input_url = _build_transcode_url(settings, job, source_id)
-    output_path = build_output_path(settings, job)
+    output_path = build_output_path(job)
     job.input_url = input_url
 
-    store.add(job)
+    await store.add(job)
     logger.info("Job %s enqueued successfully to Redis", job.id)
     return job

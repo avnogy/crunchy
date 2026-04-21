@@ -5,6 +5,7 @@ import sys
 
 LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
+VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 
 def setup_logging(level: str = "INFO") -> None:

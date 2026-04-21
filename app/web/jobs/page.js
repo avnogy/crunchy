@@ -37,12 +37,20 @@ function parseCurrentTime(value) {
   return Number.NaN;
 }
 
+function getCurrentSeconds(job) {
+  if (typeof job.progress?.current_seconds === "number") {
+    return job.progress.current_seconds;
+  }
+
+  return NaN;
+}
+
 function getEta(job) {
-  if (!job.progress?.current || !job.progress?.duration || !job.speed) {
+  if (!job.progress?.duration || !job.speed) {
     return "-";
   }
 
-  const currentSecs = parseCurrentTime(job.progress.current);
+  const currentSecs = getCurrentSeconds(job);
   const speed = Number.parseFloat(job.speed);
   if (!Number.isFinite(currentSecs) || currentSecs <= 0 || speed <= 0) {
     return "-";
@@ -54,8 +62,8 @@ function getEta(job) {
   return etaMinutes > 0 ? `${etaMinutes}m` : "-";
 }
 
-function formatCurrentTime(value) {
-  const totalSeconds = parseCurrentTime(value);
+function formatCurrentTime(job) {
+  const totalSeconds = getCurrentSeconds(job);
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) {
     return "-";
   }
@@ -89,7 +97,7 @@ function renderActions(job) {
     ? `<a href="/api/jobs/${job.id}/download" class="inline-flex items-center justify-center bg-green-600 text-white w-10 h-10 rounded-lg hover:bg-green-700 transition" title="Download" aria-label="Download">${renderIcon("download")}</a>`
     : `<button type="button" disabled class="inline-flex items-center justify-center bg-gray-200 text-gray-400 w-10 h-10 rounded-lg cursor-not-allowed" title="Download unavailable" aria-label="Download unavailable">${renderIcon("download")}</button>`;
   const renderLogLink = () =>
-    `<a href="/jobs/${job.id}/log" target="_blank" class="inline-flex items-center justify-center border border-blue-200 text-blue-600 w-10 h-10 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition" title="View log" aria-label="View log">${renderIcon("file-text")}</a>`;
+    `<a href="/api/jobs/${job.id}/log" target="_blank" rel="noopener" class="inline-flex items-center justify-center border border-blue-200 text-blue-600 w-10 h-10 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition" title="View log" aria-label="View log">${renderIcon("file-text")}</a>`;
   const cancelButton = `<button type="button" data-cancel-job="${job.id}" class="inline-flex items-center justify-center bg-red-600 text-white w-10 h-10 rounded-lg hover:bg-red-700 transition ml-auto" title="Cancel job" aria-label="Cancel job">${renderIcon("x")}</button>`;
 
   if (job.state === "completed") {
@@ -123,7 +131,7 @@ function renderJobCard(job) {
   const expanded = expandedJobs.has(job.id);
   const eta = getEta(job);
   const showProgress = job.state === "running" || job.state === "queued";
-  const currentTime = formatCurrentTime(job.progress?.current);
+  const currentTime = formatCurrentTime(job);
   const totalDuration = job.progress?.duration
     ? formatDuration(job.progress.duration)
     : "-";
