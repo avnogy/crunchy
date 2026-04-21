@@ -8,7 +8,7 @@ from typing import Any
 
 
 class Preset(BaseModel):
-    videoCodec: str = "h265"
+    videoCodec: str = "libx265"
     audioCodec: str = "aac"
     segmentContainer: str = "mp4"
     maxHeight: int = 720
