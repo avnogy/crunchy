@@ -191,14 +191,15 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         )
         return
 
-    if job.state == JobState.CANCELLED or job.cancel_requested:
-        logger.info("Skipping cancelled queued job %s", job_id)
-        await _mark_cancelled(store, job_id, temp_output_path)
-        return
 
     log_path = TRANSCODING_TEMP_DIR / f"{job_id}.log"
     TRANSCODING_TEMP_DIR.mkdir(parents=True, exist_ok=True)
     temp_output_path = TRANSCODING_TEMP_DIR / f"{job_id}{output_path.suffix}"
+
+    if job.state == JobState.CANCELLED or job.cancel_requested:
+        logger.info("Skipping cancelled queued job %s", job_id)
+        await _mark_cancelled(store, job_id, temp_output_path)
+        return
     ffmpeg_args = get_ffmpeg_command(
         settings,
         input_url=job.input_url or "",
@@ -256,16 +257,24 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         await _mark_cancelled(store, job_id, temp_output_path)
         return
 
-    if return_code == 0 and temp_output_path.exists():
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(temp_output_path), str(output_path))
-        await store.update(
-            job_id,
-            state=JobState.COMPLETED,
-            finished_at=utcnow_iso(),
-            output_path=str(output_path),
-            error_message=None,
-        )
+    if return_code == 0 and (temp_output_path.exists() or output_path.exists()):
+
+        if temp_output_path.exists():
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(temp_output_path), str(output_path))
+        logger.debug("Marking job %s COMPLETED (rc=%s)", job_id, return_code)
+        try:
+            await store.update(
+                job_id,
+                state=JobState.COMPLETED,
+                finished_at=utcnow_iso(),
+                output_path=str(output_path),
+                error_message=None,
+            )
+        except Exception as e:
+            logger.exception("Failed to set COMPLETED state for %s: %s", job_id, e)
+            await _mark_failed(store, job_id, f"Completed file present but DB update failed: {e}")
+            return
         logger.info("Completed job %s", job_id)
         return
 
