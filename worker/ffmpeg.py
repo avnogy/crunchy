@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from pathlib import Path
 
 import redis.asyncio
@@ -30,7 +31,7 @@ async def _check_cancel_task(store: JobStore, job_id: str, cancel_requested: asy
 
 
 async def _read_ffmpeg_streams(
-    store: JobStore, job_id: str, process: asyncio.subprocess.Process, log_path: Path, progress_file: Path
+    store: JobStore, job_id: str, process: asyncio.subprocess.Process, log_path: Path, progress_file: Path, temp_output_path: Path
 ) -> int:
     progress_buffer: dict[str, str] = {}
     buffer_lock = asyncio.Lock()
@@ -130,7 +131,7 @@ async def _read_ffmpeg_streams(
                 process.kill()
                 await process.wait()
             progress_file.unlink(missing_ok=True)
-            output_path.unlink(missing_ok=True)
+            temp_output_path.unlink(missing_ok=True)
             await store.update(
                 job_id,
                 state=JobState.CANCELLED,
@@ -164,8 +165,8 @@ async def _mark_failed(store: JobStore, job_id: str, message: str) -> None:
     )
 
 
-async def _mark_cancelled(store: JobStore, job_id: str, output_path: Path) -> None:
-    output_path.unlink(missing_ok=True)
+async def _mark_cancelled(store: JobStore, job_id: str, temp_output_path: Path) -> None:
+    temp_output_path.unlink(missing_ok=True)
     await store.update(
         job_id,
         state=JobState.CANCELLED,
@@ -192,18 +193,19 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
 
     if job.state == JobState.CANCELLED or job.cancel_requested:
         logger.info("Skipping cancelled queued job %s", job_id)
-        await _mark_cancelled(store, job_id, output_path)
+        await _mark_cancelled(store, job_id, temp_output_path)
         return
 
     log_path = TRANSCODING_TEMP_DIR / f"{job_id}.log"
     TRANSCODING_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    temp_output_path = TRANSCODING_TEMP_DIR / f"{job_id}{output_path.suffix}"
     ffmpeg_args = get_ffmpeg_command(
         settings,
         input_url=job.input_url or "",
-        output_path=str(output_path),
+        output_path=str(temp_output_path),
         preset=job.preset,
     )
-    logger.info("Running job %s -> %s", job_id, output_path)
+    logger.info("Running job %s -> %s (temp)", job_id, temp_output_path)
 
     current_job = await store.get(job_id)
     existing_progress = current_job.progress if current_job else Progress()
@@ -219,7 +221,7 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         progress=existing_progress,
     )
 
-    progress_file = output_path.with_suffix(".progress")
+    progress_file = TRANSCODING_TEMP_DIR / f"{job_id}.progress"
     ffmpeg_args = [
         ffmpeg_args[0],
         "-loglevel",
@@ -247,14 +249,16 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         await _mark_failed(store, job_id, f"Failed to start ffmpeg: {e}")
         return
 
-    return_code = await _read_ffmpeg_streams(store, job_id, process, log_path, progress_file)
+    return_code = await _read_ffmpeg_streams(store, job_id, process, log_path, progress_file, temp_output_path)
 
     current_job = await store.get(job_id)
     if current_job and current_job.cancel_requested:
-        await _mark_cancelled(store, job_id, output_path)
+        await _mark_cancelled(store, job_id, temp_output_path)
         return
 
-    if return_code == 0 and output_path.exists():
+    if return_code == 0 and temp_output_path.exists():
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(temp_output_path), str(output_path))
         await store.update(
             job_id,
             state=JobState.COMPLETED,
@@ -265,7 +269,7 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         logger.info("Completed job %s", job_id)
         return
 
-    output_path.unlink(missing_ok=True)
+    temp_output_path.unlink(missing_ok=True)
     error_message = f"ffmpeg exited with code {return_code}"
     await _mark_failed(store, job_id, error_message)
     logger.error("Job %s failed: %s", job_id, error_message)
