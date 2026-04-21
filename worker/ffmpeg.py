@@ -225,7 +225,7 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
     ffmpeg_args = [
         ffmpeg_args[0],
         "-loglevel",
-        "warning",
+        "info",
         "-progress",
         str(progress_file),
         "-nostats",
