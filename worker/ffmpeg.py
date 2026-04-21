@@ -42,8 +42,7 @@ async def _read_ffmpeg_streams(
     final_progress_sent = False
     progress_file_size = 0
 
-    async def watch_cancel() -> None:
-        """Poll the ``JobStore`` for a cancel request and set ``cancel_requested``."""
+    async def _cancel_watcher() -> None:
         while not cancel_requested.is_set():
             try:
                 current_job = await store.get(job_id)
@@ -54,7 +53,7 @@ async def _read_ffmpeg_streams(
                 pass
             await asyncio.sleep(CANCEL_CHECK_INTERVAL)
 
-    async def read_progress() -> None:
+    async def _progress_reader() -> None:
         nonlocal progress_file_size, last_progress_update, final_progress_sent
         while True:
             if process.returncode is not None:
@@ -113,13 +112,17 @@ async def _read_ffmpeg_streams(
                 break
 
     async with asyncio.TaskGroup() as tg:
-        tg.create_task(read_progress())
-        tg.create_task(watch_cancel())
+        cancel_task = tg.create_task(_cancel_watcher())
+        progress_task = tg.create_task(_progress_reader())
 
         await process.wait()
 
-        tg.cancel_scope.cancel()
-
+        cancel_task.cancel()
+        try:
+            await cancel_task
+        except asyncio.CancelledError:
+            pass
+        await progress_task
     if cancel_requested.is_set():
         logger.info("Cancelling running job %s", job_id)
         process.terminate()
