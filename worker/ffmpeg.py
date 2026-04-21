@@ -3,35 +3,37 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import os
 from pathlib import Path
 
 import redis.asyncio
 
 from app.config import Settings, load_settings
-from app.jobs import JOB_QUEUE_KEY, Job, JobState, JobStore, Progress, get_redis_client, utcnow_iso
+from app.jobs import (
+    JOB_QUEUE_KEY,
+    Job,
+    JobState,
+    JobStore,
+    Progress,
+    get_redis_client,
+    utcnow_iso,
+)
 from app.paths import TRANSCODING_TEMP_DIR
 from app.transcode import build_output_path, get_ffmpeg_command
 
 logger = logging.getLogger(__name__)
 
-CANCEL_CHECK_INTERVAL = 2
-PROGRESS_UPDATE_INTERVAL = 2
-
-
-async def _check_cancel_task(store: JobStore, job_id: str, cancel_requested: asyncio.Event) -> None:
-    while not cancel_requested.is_set():
-        try:
-            current_job = await store.get(job_id)
-            if current_job and current_job.cancel_requested:
-                cancel_requested.set()
-                break
-        except Exception:
-            pass
-        await asyncio.sleep(CANCEL_CHECK_INTERVAL)
+CANCEL_CHECK_INTERVAL = 2.0
+PROGRESS_UPDATE_INTERVAL = 2.0
 
 
 async def _read_ffmpeg_streams(
-    store: JobStore, job_id: str, process: asyncio.subprocess.Process, log_path: Path, progress_file: Path, temp_output_path: Path
+    store: JobStore,
+    job_id: str,
+    process: asyncio.subprocess.Process,
+    log_path: Path,
+    progress_file: Path,
+    temp_output_path: Path,
 ) -> int:
     progress_buffer: dict[str, str] = {}
     buffer_lock = asyncio.Lock()
@@ -39,21 +41,25 @@ async def _read_ffmpeg_streams(
     last_progress_update = 0.0
     final_progress_sent = False
     progress_file_size = 0
-    log_file = log_path.open("ab")
 
-    cancel_task = asyncio.create_task(_check_cancel_task(store, job_id, cancel_requested))
-
-    async def read_stderr() -> None:
-        while True:
-            line = await process.stderr.readline()
-            if not line:
-                break
-            log_file.write(line)
-            log_file.flush()
+    async def watch_cancel() -> None:
+        """Poll the ``JobStore`` for a cancel request and set ``cancel_requested``."""
+        while not cancel_requested.is_set():
+            try:
+                current_job = await store.get(job_id)
+                if current_job and current_job.cancel_requested:
+                    cancel_requested.set()
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(CANCEL_CHECK_INTERVAL)
 
     async def read_progress() -> None:
         nonlocal progress_file_size, last_progress_update, final_progress_sent
         while True:
+            if process.returncode is not None:
+                break
+
             if progress_file.exists():
                 content = progress_file.read_text()
                 if len(content) > progress_file_size:
@@ -71,89 +77,75 @@ async def _read_ffmpeg_streams(
                                 continue
 
                             progress_payload = Progress()
-                            out_time_us = progress_buffer.get("out_time_us")
-                            if out_time_us:
+                            if out_time_us := progress_buffer.get("out_time_us"):
                                 try:
-                                    progress_payload.current_seconds = int(out_time_us) / 1_000_000
+                                    progress_payload.current_seconds = (
+                                        int(out_time_us) / 1_000_000
+                                    )
                                 except ValueError:
                                     pass
-
-                            fps_value = progress_buffer.get("fps")
-                            frame_value = progress_buffer.get("frame")
-                            if fps_value is not None:
-                                progress_payload.fps = fps_value
-                            if frame_value is not None:
-                                progress_payload.frame = frame_value
+                            if fps := progress_buffer.get("fps"):
+                                progress_payload.fps = fps
+                            if frame := progress_buffer.get("frame"):
+                                progress_payload.frame = frame
 
                             speed = progress_buffer.get("speed")
                             progress_buffer.clear()
 
-                        current_time = asyncio.get_running_loop().time()
-                        if current_time - last_progress_update >= PROGRESS_UPDATE_INTERVAL:
+                        now = asyncio.get_running_loop().time()
+                        if now - last_progress_update >= PROGRESS_UPDATE_INTERVAL:
                             current_job = await store.get(job_id)
-                            existing_progress = current_job.progress if current_job else Progress()
-                            update_data = progress_payload.model_dump(exclude_none=True)
-                            merged = existing_progress.model_copy(update=update_data)
-
+                            existing = (
+                                current_job.progress if current_job else Progress()
+                            )
+                            merged = existing.model_copy(
+                                update=progress_payload.model_dump(exclude_none=True)
+                            )
                             changes: dict[str, object] = {"progress": merged}
                             if speed:
                                 changes["speed"] = speed
                             await store.update(job_id, **changes)
-                            last_progress_update = current_time
+                            last_progress_update = now
                             final_progress_sent = True
-                else:
-                    if process.returncode is not None:
-                        break
-            await asyncio.sleep(0.5)
+            try:
+                await asyncio.sleep(0.5)
+            except asyncio.CancelledError:
+                break
 
-    try:
-        stderr_task = asyncio.create_task(read_stderr())
-        progress_task = asyncio.create_task(read_progress())
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(read_progress())
+        tg.create_task(watch_cancel())
 
-        process_wait_task = asyncio.create_task(process.wait())
-        done, pending = await asyncio.wait(
-            [stderr_task, progress_task, cancel_task, process_wait_task],
-            return_when=asyncio.FIRST_COMPLETED,
+        await process.wait()
+
+        tg.cancel_scope.cancel()
+
+    if cancel_requested.is_set():
+        logger.info("Cancelling running job %s", job_id)
+        process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=10)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+        progress_file.unlink(missing_ok=True)
+        temp_output_path.unlink(missing_ok=True)
+        await store.update(
+            job_id,
+            state=JobState.CANCELLED,
+            finished_at=utcnow_iso(),
+            output_path=None,
         )
 
-        for task in pending:
-            task.cancel()
-            try:
-                await task
-            except Exception:
-                pass
+    if not final_progress_sent:
+        current_job = await store.get(job_id)
+        existing_progress = current_job.progress if current_job else Progress()
+        changes = {"progress": existing_progress}
+        if speed := progress_buffer.get("speed"):
+            changes["speed"] = speed
+        await store.update(job_id, **changes)
 
-        if cancel_requested.is_set():
-            logger.info("Cancelling running job %s", job_id)
-            process.terminate()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=10)
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
-            progress_file.unlink(missing_ok=True)
-            temp_output_path.unlink(missing_ok=True)
-            await store.update(
-                job_id,
-                state=JobState.CANCELLED,
-                finished_at=utcnow_iso(),
-                output_path=None,
-            )
-
-        if not final_progress_sent:
-            current_job = await store.get(job_id)
-            existing_progress = current_job.progress if current_job else Progress()
-            changes = {"progress": existing_progress}
-            if speed := progress_buffer.get("speed"):
-                changes["speed"] = speed
-            await store.update(job_id, **changes)
-
-    except Exception as e:
-        logger.exception("Error in ffmpeg streams for job %s: %s", job_id, e)
-    finally:
-        log_file.close()
-
-    return_code = await process.wait()
+    return_code = process.returncode or 0
     return return_code
 
 
@@ -182,7 +174,11 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     existing = await store.find_reusable_by_item_and_preset(job.item_id, job.preset)
-    if existing and existing.state == JobState.COMPLETED and existing.is_download_available():
+    if (
+        existing
+        and existing.state == JobState.COMPLETED
+        and existing.is_download_available()
+    ):
         logger.info("Reusing completed job %s for item %s", existing.id, job.item_name)
         await store.update(
             job_id,
@@ -191,7 +187,6 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
             finished_at=existing.finished_at,
         )
         return
-
 
     log_path = TRANSCODING_TEMP_DIR / f"{job_id}.log"
     TRANSCODING_TEMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -224,10 +219,13 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
     )
 
     progress_file = TRANSCODING_TEMP_DIR / f"{job_id}.progress"
+    env = os.environ.copy()
+    env["FFREPORT"] = f"file={log_path}"
     ffmpeg_args = [
         ffmpeg_args[0],
         "-loglevel",
         "info",
+        "-report",
         "-progress",
         str(progress_file),
         "-nostats",
@@ -240,7 +238,7 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         process = await asyncio.create_subprocess_exec(
             *ffmpeg_args,
             stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
     except FileNotFoundError as e:
         logger.error("ffmpeg not found: %s", e)
@@ -251,7 +249,9 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         await _mark_failed(store, job_id, f"Failed to start ffmpeg: {e}")
         return
 
-    return_code = await _read_ffmpeg_streams(store, job_id, process, log_path, progress_file, temp_output_path)
+    return_code = await _read_ffmpeg_streams(
+        store, job_id, process, log_path, progress_file, temp_output_path
+    )
 
     current_job = await store.get(job_id)
     if current_job and current_job.cancel_requested:
@@ -274,7 +274,9 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
             )
         except Exception as e:
             logger.exception("Failed to set COMPLETED state for %s: %s", job_id, e)
-            await _mark_failed(store, job_id, f"Completed file present but DB update failed: {e}")
+            await _mark_failed(
+                store, job_id, f"Completed file present but DB update failed: {e}"
+            )
             return
         logger.info("Completed job %s", job_id)
         return
@@ -322,7 +324,9 @@ async def main() -> None:
             client = get_redis_client(settings)
             await client.ping()
             store = JobStore(client)
-            logger.info("Connected to Redis at %s:%s", settings.redis_host, settings.redis_port)
+            logger.info(
+                "Connected to Redis at %s:%s", settings.redis_host, settings.redis_port
+            )
 
             while True:
                 try:
