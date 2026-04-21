@@ -52,7 +52,7 @@ async def ffmpeg_preview(request: Request, payload: FfmpegPreviewPayload):
     cmd = get_ffmpeg_command(
         preview_settings,
     )
-    logger.debug("Returning ffmpeg preview command with %d argument(s)", len(full_cmd))
+    logger.debug("Returning ffmpeg preview command with %d argument(s)", len(cmd))
     return JSONResponse({"command": cmd})
 
 
