@@ -18,7 +18,7 @@ docker compose up
 
 Set the values you need in `.env` first.
 
-`docker-compose.yml` defaults the app and ffmpeg worker temp directory to RAM-backed `tmpfs` storage at the fixed in-container path `/data/temp`.
+`docker-compose.yml` now uses a **shared RAM-backed tmpfs volume** (`shared_temp`) for the internal path `/data/temp`. Both the web app and the ffmpeg worker mount this same temporary filesystem, so files such as job logs are immediately visible to the API.
 
 For local development with a local image build, use:
 
@@ -43,27 +43,24 @@ docker compose -f docker-compose.dev.yml up --build
 | `APP_GID` | `1000` | Optional runtime GID override for the container group. |
 | `CRUNCHY_IMAGE` | `ghcr.io/avnogy/crunchy:latest` | Image used by the compose files. |
 
-## Worker Temp Storage
+## Shared Temp Storage
 
-The app and worker always use the fixed internal paths `/data/temp` and `/data/output`.
+The app and the worker always use the fixed internal paths `/data/temp` and `/data/output`.
 
-- Default mode uses RAM-backed `tmpfs` for the worker temp directory at `/data/temp`.
-- `OUTPUT_PATH` is separate and always controls the host path for completed downloads at `/data/output`.
+- By default a **RAM-backed `tmpfs` volume** named `shared_temp` is mounted at `/data/temp`. This volume is shared between the `crunchy` and `ffmpeg-worker` services, allowing temporary files (e.g., ffmpeg logs) to be accessed by both containers.
+- `OUTPUT_PATH` controls the host path for completed downloads at `/data/output` and remains unchanged.
 
-Use RAM-backed temp storage when you want faster temporary I/O and the temp files disappearing on container restart.
+Use RAM-backed temp storage when you want faster temporary I/O and want the temporary files to disappear on container restart.
 
-To keep temp files on disk instead, replace the `tmpfs` entry for `/data/temp` with a bind mount, for example:
+If you prefer the temporary files to be stored on disk instead, replace the `shared_temp:/data/temp` mount in both services with a bind mount, for example:
 
 ```yaml
-services:
-  ffmpeg-worker:
-    volumes:
-      - ${OUTPUT_PATH:-./output}:/data/output
-      - ./config:/config
-      - ./temp:/data/temp
-```
 
-Apply the same change to `crunchy` as well if you want the web app container to use disk-backed temp storage too.
+volumes:
+  - ${OUTPUT_PATH:-./output}:/data/output
+  - ./config:/config
+  - ./temp:/data/temp
+```
 
 The ffmpeg worker lives under [`worker/`](./worker) as a separate service that only communicates through Redis. To process more jobs in parallel, scale the `ffmpeg-worker` service.
 

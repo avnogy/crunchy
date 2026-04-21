@@ -17,12 +17,9 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     volumes:
-      # Persist app settings.
       - ./config:/config
-      # Store completed downloads.
       - ${OUTPUT_PATH:-./output}:/data/output
-    tmpfs:
-      - /data/temp:rw
+      - shared_temp:/data/temp
     depends_on:
       - redis
 
@@ -31,8 +28,7 @@ services:
     volumes:
       - ${OUTPUT_PATH:-./output}:/data/output
       - ./config:/config
-    tmpfs:
-      - /data/temp:rw
+      - shared_temp:/data/temp
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -45,3 +41,9 @@ services:
 
 volumes:
   redis_data:
+  shared_temp:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: rw
