@@ -49,8 +49,10 @@ async def ffmpeg_preview(request: Request, payload: FfmpegPreviewPayload):
     preview_settings = request.app.state.settings.model_copy(
         update={"ffmpeg_flags": flags}
     )
-    cmd = get_ffmpeg_command(preview_settings)
-    logger.debug("Returning ffmpeg preview command with %d argument(s)", len(cmd))
+    cmd = get_ffmpeg_command(
+        preview_settings,
+    )
+    logger.debug("Returning ffmpeg preview command with %d argument(s)", len(full_cmd))
     return JSONResponse({"command": cmd})
 
 

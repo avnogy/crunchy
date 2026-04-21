@@ -9,7 +9,7 @@ from pathvalidate import sanitize_filename
 from app.config import Settings
 from app.jellyfin import JellyfinClient
 from app.jobs import Job, JobStore, Progress
-from app.paths import OUTPUT_DIR
+from app.paths import OUTPUT_DIR, TRANSCODING_TEMP_DIR
 from app.presets import Preset
 
 logger = logging.getLogger(__name__)
@@ -26,9 +26,9 @@ def build_output_path(job: Job) -> Path:
 
 def get_ffmpeg_command(
     settings: Settings,
-    input_url: str = "https://jellyfin.example/main.m3u8",
-    output_path: str = "/data/output/output.mp4",
-    preset: dict | None = None,
+    input_url: str = "https://jellyfin.example/main.m3u8?args=values",
+    output_path: str = OUTPUT_DIR / "output.mp4",
+    progress_file: str = TRANSCODING_TEMP_DIR / "preview.progress",
 ) -> list[str]:
     args = [
         "ffmpeg",
@@ -39,6 +39,14 @@ def get_ffmpeg_command(
         "copy",
         "-movflags",
         "+faststart",
+        "-loglevel",
+        "info",
+        "-report",
+        "-progress",
+        progress_file,
+        "-nostats",
+        "-stats_period",
+        "2",
     ]
 
     args.extend(settings.ffmpeg_flags)

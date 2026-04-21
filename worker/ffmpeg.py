@@ -199,12 +199,6 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         logger.info("Skipping cancelled queued job %s", job_id)
         await _mark_cancelled(store, job_id, temp_output_path)
         return
-    ffmpeg_args = get_ffmpeg_command(
-        settings,
-        input_url=job.input_url or "",
-        output_path=str(temp_output_path),
-        preset=job.preset,
-    )
     logger.info("Running job %s -> %s (temp)", job_id, temp_output_path)
 
     current_job = await store.get(job_id)
@@ -224,18 +218,12 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
     progress_file = TRANSCODING_TEMP_DIR / f"{job_id}.progress"
     env = os.environ.copy()
     env["FFREPORT"] = f"file={log_path}"
-    ffmpeg_args = [
-        ffmpeg_args[0],
-        "-loglevel",
-        "info",
-        "-report",
-        "-progress",
-        str(progress_file),
-        "-nostats",
-        "-stats_period",
-        "2",
-        *ffmpeg_args[1:],
-    ]
+    ffmpeg_args = get_ffmpeg_command(
+        settings,
+        input_url=job.input_url,
+        output_path=str(temp_output_path),
+        progress_file=str(progress_file),
+    )
 
     try:
         process = await asyncio.create_subprocess_exec(
