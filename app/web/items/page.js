@@ -21,12 +21,6 @@ document
     event.preventDefault();
 
     const form = event.target;
-    const resultDiv = document.getElementById("job-result");
-    if (!resultDiv) {
-      return;
-    }
-
-    resultDiv.innerHTML = '<p class="text-gray-600">Creating job...</p>';
 
     try {
       const { ok, result } = await createJob({
@@ -40,13 +34,13 @@ document
         const message = result?.deduped
           ? "Job already exists!"
           : "Job created!";
-        resultDiv.innerHTML = `<p class="text-green-600">${message} <a href="/jobs?job=${result.job.id}" class="text-blue-600 hover:underline">View job</a></p>`;
+        toast.success(message);
         return;
       }
 
-      resultDiv.innerHTML = `<p class="text-red-600">Error: ${result?.detail || "Unknown error"}</p>`;
+      toast.error(result?.detail || "Unknown error");
     } catch (error) {
-      resultDiv.innerHTML = '<p class="text-red-600">Failed to create job.</p>';
+      toast.error("Failed to create job");
     }
   });
 
@@ -72,20 +66,12 @@ document
 
     const form = event.target;
     const checked = document.querySelectorAll('input[name="item_ids"]:checked');
-    const resultDiv = document.getElementById("batch-result");
-    if (!resultDiv) {
-      return;
-    }
-
     if (checked.length === 0) {
-      resultDiv.innerHTML =
-        '<p class="text-red-600">Select at least one episode.</p>';
+      toast.error("Select at least one episode");
       return;
     }
 
-    resultDiv.innerHTML = '<p class="text-gray-600">Creating jobs...</p>';
-
-    const preset = form.preset.value;
+    const preset = form.preset.value;   
     let created = 0;
     let deduped = 0;
     const createdIds = [];
@@ -117,7 +103,6 @@ document
     }
 
     if (created > 0 || deduped > 0) {
-      const focusJob = createdIds[0] ? `?job=${createdIds[0]}` : "";
       const parts = [];
       if (created > 0) {
         parts.push(`Created ${created} job(s)`);
@@ -125,9 +110,9 @@ document
       if (deduped > 0) {
         parts.push(`reused ${deduped} existing job(s)`);
       }
-      resultDiv.innerHTML = `<p class="text-green-600">${parts.join(", ")}. <a href="/jobs${focusJob}" class="text-blue-600 hover:underline">View jobs</a></p>`;
+      toast.success(parts.join(", "));
       return;
     }
 
-    resultDiv.innerHTML = `<p class="text-red-600">Failed: ${errors.join(", ")}</p>`;
+    toast.error("Failed: " + errors.join(", "));
   });

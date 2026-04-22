@@ -65,6 +65,10 @@ async def page_asset(page: str):
     logger.debug("Serving page asset for page=%s", page)
     return FileResponse(asset_path, media_type="application/javascript")
 
+@app.get("/assets/toast.js")
+async def toast_asset():
+    return FileResponse(WEB_ROOT / "toast.js", media_type="application/javascript")
+
 
 app.include_router(home_router, dependencies=[Depends(require_basic_auth)])
 app.include_router(items_router, dependencies=[Depends(require_basic_auth)])
