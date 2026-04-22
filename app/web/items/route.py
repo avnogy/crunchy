@@ -11,6 +11,22 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _extract_audio_streams(media_sources: list[dict]) -> list[dict] | None:
+    if not media_sources:
+        return None
+    streams = media_sources[0].get("MediaStreams", [])
+    audio = [
+        {
+            "index": s.get("Index"),
+            "language": (s.get("Language") or "").lower(),
+            "codec": s.get("Codec") or "",
+        }
+        for s in streams
+        if s.get("Type") == "Audio"
+    ]
+    return audio or None
+
+
 def normalize_item(
     item: dict[str, Any], image_base_url: str | None = None
 ) -> dict[str, Any]:
@@ -39,6 +55,9 @@ def normalize_item(
     media_sources = item.get("MediaSources", [])
     if media_sources:
         result["size_bytes"] = int(media_sources[0].get("Size", 0))
+        audio_streams = _extract_audio_streams(media_sources)
+        if audio_streams:
+            result["audio_streams"] = audio_streams
     return result
 
 
@@ -82,6 +101,13 @@ async def item_detail(request: Request, item_id: str):
         item.get("Type"),
         len(children),
     )
+
+    media_sources = item.get("MediaSources", [])
+    if media_sources:
+        audio_streams = _extract_audio_streams(media_sources)
+        if audio_streams:
+            item["audio_streams"] = audio_streams
+
     return templates.TemplateResponse(
         request,
         "items/index.html",
