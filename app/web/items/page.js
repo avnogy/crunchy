@@ -56,6 +56,15 @@ document.getElementById("select-all")?.addEventListener("change", (event) => {
   });
 });
 
+document.querySelectorAll(".episode-row").forEach((row) => {
+  row.addEventListener("click", (event) => {
+    const checkbox = row.querySelector('input[type="checkbox"]');
+    if (checkbox && event.target !== checkbox) {
+      checkbox.checked = !checkbox.checked;
+    }
+  });
+});
+
 document
   .getElementById("batch-download-form")
   ?.addEventListener("submit", async (event) => {
