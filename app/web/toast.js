@@ -8,7 +8,7 @@
 
   function show(message, type, duration) {
     const el = document.createElement('div');
-    el.className = 'toast flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium text-gray-700 bg-white shadow-sm border border-gray-100 transition-all duration-200 ' + type;
+    el.className = 'toast flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium text-white shadow-sm transition-all duration-200 ' + type;
     el.textContent = message;
     container.appendChild(el);
     requestAnimationFrame(() => el.classList.add('show'));
@@ -19,9 +19,9 @@
   }
 
   window.toast = {
-    success: (msg) => show(msg, 'border-l-green-500', 4000),
-    error: (msg) => show(msg, 'border-l-red-500', 6000),
-    info: (msg) => show(msg, 'border-l-gray-400', 4000),
+    success: (msg) => show(msg, 'bg-green-500', 4000),
+    error: (msg) => show(msg, 'bg-red-500', 6000),
+    info: (msg) => show(msg, 'bg-blue-500', 4000),
     show: show,
   };
 })();
