@@ -12,16 +12,18 @@
     el.textContent = message;
     container.appendChild(el);
     requestAnimationFrame(() => el.classList.add('show'));
-    setTimeout(() => {
-      el.classList.remove('show');
-      setTimeout(() => el.remove(), 200);
-    }, duration);
+    if (duration > 0) {
+      setTimeout(() => {
+        el.classList.remove('show');
+        setTimeout(() => el.remove(), 200);
+      }, duration);
+    }
   }
 
   window.toast = {
-    success: (msg) => show(msg, 'bg-green-500', 4000),
-    error: (msg) => show(msg, 'bg-red-500', 6000),
-    info: (msg) => show(msg, 'bg-blue-500', 4000),
+    success: (msg) => show(msg, 'bg-green-500', 2500),
+    error: (msg) => show(msg, 'bg-red-500', 0),
+    info: (msg) => show(msg, 'bg-blue-500', 2500),
     show: show,
   };
 })();
