@@ -129,8 +129,7 @@ async function loadSettings() {
         storedAppPasswordLength > 0
           ? `Leave blank to keep current (${storedAppPasswordLength} chars set)`
           : "Required";
-    }
-    toast.info("Uses the currently saved settings");
+    }   
   } catch (e) {
     console.error("Failed to load settings:", e);
   }
@@ -283,7 +282,7 @@ async function checkRedisHealth(button) {
     button.disabled = true;
     button.textContent = "Checking...";
   }
-  toast.info("Checking saved Redis settings...");
+  
 
   try {
     const resp = await fetch("/api/redis-health");

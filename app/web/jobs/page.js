@@ -285,8 +285,7 @@ async function loadJobs() {
       expandedJobs.add(requestedJobId);
     }
 
-    if (jobs.length === 0) {
-      toast.info("No jobs yet.");
+    if (jobs.length === 0) {    
       container.innerHTML = "";
       return;
     }

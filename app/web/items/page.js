@@ -71,8 +71,7 @@ document
       return;
     }
 
-    const preset = form.preset.value;
-    toast.info("Creating jobs...");
+    const preset = form.preset.value;   
     let created = 0;
     let deduped = 0;
     const createdIds = [];
