@@ -55,7 +55,7 @@ def get_ffmpeg_command(
 
 
 def _build_transcode_url(
-    settings: Settings, job: Job, source_id: str, audio_stream_index: int | None = None
+    settings: Settings, job: Job, source_id: str
 ) -> str:
     url = f"{settings.jellyfin_api_url}/Videos/{job.item_id}/main.m3u8"
     preset = Preset(**job.preset)
@@ -72,14 +72,14 @@ def _build_transcode_url(
         "transcodeReasons": "ContainerNotSupported",
     }
 
-    if audio_stream_index is not None:
-        params["audioStreamIndex"] = str(audio_stream_index)
+    if job.audio_stream_index is not None:
+        params["audioStreamIndex"] = str(job.audio_stream_index)
 
     return f"{url}?{urlencode(params)}"
 
 
 async def enqueue_job(
-    job: Job, settings: Settings, store: JobStore, audio_stream_index: int | None = None
+    job: Job, settings: Settings, store: JobStore
 ) -> Job:
     logger.info("Enqueuing job %s: %s", job.id, job.item_name)
 
@@ -104,9 +104,9 @@ async def enqueue_job(
                 run_time_ticks,
             )
 
-    input_url = _build_transcode_url(
-        settings, job, source_id, audio_stream_index=audio_stream_index
-    )
+        input_url = _build_transcode_url(
+            settings, job, source_id
+        )
     output_path = build_output_path(job)
     job.input_url = input_url
 

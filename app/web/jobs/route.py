@@ -46,7 +46,7 @@ async def create_job(request: Request, data: CreateJobPayload):
     preset = presets[preset_key]
     try:
         store = get_store(settings)
-        existing_job = await store.find_reusable_by_item_and_preset(item_id, preset)
+        existing_job = await store.find_reusable_by_item_and_preset(item_id, preset, audio_stream_index=data.audio_stream_index)
         if existing_job:
             logger.info(
                 "Reusing existing job %s for item_id=%s preset=%s state=%s",
@@ -60,9 +60,9 @@ async def create_job(request: Request, data: CreateJobPayload):
                 status_code=200,
             )
 
-        job = new_job(item_id=item_id, item_name=item_name, preset=preset)
+        job = new_job(item_id=item_id, item_name=item_name, preset=preset, audio_stream_index=data.audio_stream_index)
         await enqueue_job(
-            job, settings, store, audio_stream_index=data.audio_stream_index
+            job, settings, store
         )
     except redis.asyncio.RedisError as exc:
         logger.exception("Redis failure while creating job for item_id=%s", item_id)
