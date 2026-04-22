@@ -33,6 +33,7 @@ document
         item_id: form.item_id.value,
         item_name: form.item_name.value,
         preset: form.preset.value,
+        audio_stream_index: form.audio_stream_index?.value !== '' ? Number(form.audio_stream_index.value) : null,
       });
 
       if (ok) {
@@ -52,6 +53,15 @@ document
 document.getElementById("select-all")?.addEventListener("change", (event) => {
   document.querySelectorAll('input[name="item_ids"]').forEach((checkbox) => {
     checkbox.checked = event.target.checked;
+  });
+});
+
+document.querySelectorAll(".episode-row").forEach((row) => {
+  row.addEventListener("click", (event) => {
+    const checkbox = row.querySelector('input[type="checkbox"]');
+    if (checkbox && event.target !== checkbox) {
+      checkbox.checked = !checkbox.checked;
+    }
   });
 });
 
@@ -83,10 +93,12 @@ document
 
     for (const checkbox of checked) {
       try {
+        const audioSelect = document.querySelector(`select[data-item-id="${CSS.escape(checkbox.value)}"]`);
         const { ok, result } = await createJob({
           item_id: checkbox.value,
           item_name: checkbox.dataset.name,
           preset,
+          audio_stream_index: audioSelect?.value !== '' ? Number(audioSelect.value) : null,
         });
 
         if (ok) {

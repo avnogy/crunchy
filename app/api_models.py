@@ -144,3 +144,4 @@ class CreateJobPayload(BaseModel):
     item_id: str = Field(min_length=1)
     item_name: str = Field(min_length=1)
     preset: str = Field(default="720p-low", min_length=1)
+    audio_stream_index: int | None = None

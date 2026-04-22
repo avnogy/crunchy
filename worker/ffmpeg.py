@@ -152,7 +152,7 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
     output_path = build_output_path(job)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    existing = await store.find_reusable_by_item_and_preset(job.item_id, job.preset)
+    existing = await store.find_reusable_by_item_and_preset(job.item_id, job.preset, audio_stream_index=job.audio_stream_index)
     if (
         existing
         and existing.state == JobState.COMPLETED

@@ -57,6 +57,7 @@ class Job(BaseModel):
     input_url: Optional[str] = None
     error_message: Optional[str] = None
     speed: str = ""
+    audio_stream_index: int | None = None
     progress: Progress = Field(default_factory=Progress)
     cancel_requested: bool = False
 
@@ -73,11 +74,12 @@ class Job(BaseModel):
         return bool(self.output_path and Path(self.output_path).exists())
 
 
-def new_job(item_id: str, item_name: str, preset: dict[str, Any]) -> Job:
+def new_job(item_id: str, item_name: str, preset: dict[str, Any], audio_stream_index: int | None = None) -> Job:
     return Job(
         item_id=item_id,
         item_name=item_name,
         preset=preset,
+        audio_stream_index=audio_stream_index,
     )
 
 
@@ -107,13 +109,15 @@ class JobStore:
         return [Job.model_validate_json(v) for v in values if v]
 
     async def find_reusable_by_item_and_preset(
-        self, item_id: str, preset: dict[str, Any]
+        self, item_id: str, preset: dict[str, Any], audio_stream_index: int | None = None
     ) -> Job | None:
         signature = json.dumps(preset, sort_keys=True, separators=(",", ":"))
         for job in await self.list():
             if job.item_id != item_id:
                 continue
             if job.preset_signature != signature:
+                continue
+            if job.audio_stream_index != audio_stream_index:
                 continue
             if job.state in (JobState.QUEUED, JobState.RUNNING):
                 return job
