@@ -244,7 +244,7 @@ async function cancelJob(jobId) {
     }
     await loadJobs();
   } catch (error) {
-    window.alert("Failed to cancel");
+    toast.error("Failed to cancel");
   }
 }
 
@@ -286,7 +286,8 @@ async function loadJobs() {
     }
 
     if (jobs.length === 0) {
-      container.innerHTML = '<p class="text-gray-500">No jobs yet.</p>';
+      toast.info("No jobs yet.");
+      container.innerHTML = "";
       return;
     }
 
@@ -294,7 +295,7 @@ async function loadJobs() {
     bindJobEvents();
     refreshIcons();
   } catch (error) {
-    container.innerHTML = '<p class="text-red-600">Failed to load.</p>';
+    toast.error("Failed to load");
   }
 }
 

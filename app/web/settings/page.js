@@ -12,7 +12,6 @@ async function clearDirectory(endpoint, label, button) {
     return;
   }
 
-  const result = document.getElementById("paths-result");
   const originalText = button?.textContent;
   if (button) {
     button.disabled = true;
@@ -26,15 +25,9 @@ async function clearDirectory(endpoint, label, button) {
       throw new Error(data?.detail || "Failed");
     }
 
-    if (result) {
-      result.textContent = `Emptied ${label}: removed ${data.cleared} item(s).`;
-      result.className = "text-sm text-green-600";
-    }
+    toast.success(`Emptied ${label}: removed ${data.cleared} item(s)`);
   } catch (error) {
-    if (result) {
-      result.textContent = `Failed to empty ${label}.`;
-      result.className = "text-sm text-red-600";
-    }
+    toast.error(`Failed to empty ${label}`);
   } finally {
     if (button) {
       button.disabled = false;
@@ -137,19 +130,10 @@ async function loadSettings() {
           ? `Leave blank to keep current (${storedAppPasswordLength} chars set)`
           : "Required";
     }
-    updateRedisHealthMessage("Uses the currently saved settings.", "text-sm text-gray-500");
+    toast.info("Uses the currently saved settings");
   } catch (e) {
     console.error("Failed to load settings:", e);
   }
-}
-
-function updateRedisHealthMessage(message, className) {
-  const result = document.getElementById("redis-health-result");
-  if (!result) {
-    return;
-  }
-  result.textContent = message;
-  result.className = className;
 }
 
 document
@@ -158,7 +142,6 @@ document
     e.preventDefault();
     const form = e.target;
     const formData = new FormData(form);
-    const result = document.getElementById("save-result");
 
     if (!form.reportValidity()) {
       return;
@@ -195,8 +178,7 @@ document
         storedAppPasswordLength =
           Number(saved?.settings?.app_password_length) ||
           storedAppPasswordLength;
-        result.textContent = "Saved!";
-        result.className = "text-sm text-green-600";
+        toast.success("Saved!");
         const apiKeyInput = document.getElementById("jellyfin-api-key");
         if (apiKeyInput) {
           apiKeyInput.value = "";
@@ -220,24 +202,15 @@ document
         if (appPasswordHelp) {
           appPasswordHelp.textContent = `Leave blank to keep current (${storedAppPasswordLength} chars set)`;
         }
-        updateRedisHealthMessage(
-          "Saved. Redis connectivity check uses the saved values.",
-          "text-sm text-gray-500",
-        );
+        toast.success("Saved. Redis connectivity check uses the saved values");
         renderPresets();
       } else {
         const error = await resp.json().catch(() => null);
-        result.textContent = error?.detail || "Error saving";
-        result.className = "text-sm text-red-600";
+        toast.error(error?.detail || "Error saving");
       }
     } catch (e) {
-      result.textContent = "Error saving";
-      result.className = "text-sm text-red-600";
+      toast.error("Error saving");
     }
-
-    setTimeout(() => {
-      result.textContent = "";
-    }, 3000);
   });
 
 async function updatePreview() {
@@ -310,7 +283,7 @@ async function checkRedisHealth(button) {
     button.disabled = true;
     button.textContent = "Checking...";
   }
-  updateRedisHealthMessage("Checking saved Redis settings...", "text-sm text-gray-500");
+  toast.info("Checking saved Redis settings...");
 
   try {
     const resp = await fetch("/api/redis-health");
@@ -318,15 +291,9 @@ async function checkRedisHealth(button) {
     if (!resp.ok) {
       throw new Error(data?.detail || "Redis unavailable");
     }
-    updateRedisHealthMessage(
-      "Redis is reachable with the saved host and port.",
-      "text-sm text-green-600",
-    );
+    toast.success("Redis is reachable with the saved host and port");
   } catch (error) {
-    updateRedisHealthMessage(
-      "Redis check failed for the saved host and port.",
-      "text-sm text-red-600",
-    );
+    toast.error("Redis check failed for the saved host and port");
   } finally {
     if (button) {
       button.disabled = false;

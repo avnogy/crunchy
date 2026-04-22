@@ -1,0 +1,27 @@
+(function() {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  const style = document.createElement('style');
+  style.textContent = '.toast{opacity:0;transform:translateY(1rem)}.toast.show{opacity:1;transform:translateY(0)}';
+  document.head.appendChild(style);
+
+  function show(message, type, duration) {
+    const el = document.createElement('div');
+    el.className = 'toast flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium text-gray-700 bg-white shadow-sm border border-gray-100 transition-all duration-200 ' + type;
+    el.textContent = message;
+    container.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('show'));
+    setTimeout(() => {
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 200);
+    }, duration);
+  }
+
+  window.toast = {
+    success: (msg) => show(msg, 'border-l-green-500', 4000),
+    error: (msg) => show(msg, 'border-l-red-500', 6000),
+    info: (msg) => show(msg, 'border-l-gray-400', 4000),
+    show: show,
+  };
+})();
