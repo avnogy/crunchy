@@ -9,7 +9,11 @@
   function show(message, type, duration) {
     const el = document.createElement('div');
     el.className = 'toast flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium text-white shadow-sm transition-all duration-200 ' + type;
-    el.textContent = message;
+    el.onclick = () => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 200);
+  };
+  el.textContent = message;
     container.appendChild(el);
     requestAnimationFrame(() => el.classList.add('show'));
     if (duration > 0) {
