@@ -47,7 +47,7 @@ def normalize_item(
     item_id = item.get("Id")
     if item_id and image_base_url:
         result["image"] = (
-            f"{image_base_url}/Items/{item_id}/Images/Primary?quality=80&width=400"
+            f"{image_base_url}/Items/{item_id}/Images/Primary?quality=80&width=960"
         )
     run_time = item.get("RunTimeTicks")
     if run_time:
