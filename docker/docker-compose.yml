@@ -7,8 +7,6 @@ x-app-common: &app-common
     APP_GID: ${APP_GID:-1000}
     REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
     REDIS_PORT: 6379
-  depends_on:
-    - redis
 
 x-app-volumes: &app-volumes
   - ${CONFIG_PATH:-./data/config}:/config
@@ -20,17 +18,38 @@ services:
     image: redis:alpine
     command: redis-server --save 60 1 --loglevel warning
     network_mode: host
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     volumes:
       - redis_data:/data
 
   crunchy:
     <<: *app-common
     network_mode: host
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:${APP_PORT:-8000}/healthz > /dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     volumes: *app-volumes
 
   ffmpeg-worker:
     <<: *app-common
     network_mode: host
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       <<: *app-environment
       CRUNCHY_SERVICE_MODE: worker

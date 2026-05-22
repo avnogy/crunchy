@@ -9,7 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg gosu \
+    && apt-get install -y --no-install-recommends curl ffmpeg gosu \
     && groupadd --gid "${APP_GID}" crunchy \
     && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --home-dir /home/crunchy crunchy \
     && mkdir -p /data/temp /data/output \
