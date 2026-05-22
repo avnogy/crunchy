@@ -1,63 +1,51 @@
-{% extends "shared/base.html" %} {% block title %}crunchy{% endblock %} {% block
-content %}
-<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-    <h2 class="text-xl font-semibold mb-6 text-gray-700">Library</h2>
-    {% if library_items %}
-    <h2 class="text-xl font-semibold mb-4 text-gray-700">Movies</h2>
-    <div class="flex gap-4 overflow-x-auto pb-4 mb-8 scrollbar-thin">
-        {% for item in library_items if item.type == 'Movie' %}
-        <article
-            class="w-40 flex-shrink-0 bg-gray-50 rounded-lg overflow-hidden border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all"
-        >
-            <a href="/items/{{ item.id }}">
-                <img
-                    src="{{ item.image }}"
-                    alt="{{ item.name }}"
-                    class="w-full aspect-[2/3] object-cover"
-                    loading="lazy"
-                />
-            </a>
-            <div class="p-3">
-                <h3 class="text-xs font-semibold line-clamp-2">
-                    <a
-                        href="/items/{{ item.id }}"
-                        class="text-blue-600 hover:text-blue-700"
-                        >{{ item.name }}</a
-                    >
-                </h3>
-            </div>
-        </article>
-        {% endfor %}
-    </div>
+{% extends "shared/base.html" %}
+{% import "shared/macros.html" as ui %}
 
-    <h2 class="text-xl font-semibold mb-4 text-gray-700">Series</h2>
-    <div class="flex gap-4 overflow-x-auto pb-4 scrollbar-thin">
-        {% for item in library_items if item.type == 'Series' %}
-        <article
-            class="w-40 flex-shrink-0 bg-gray-50 rounded-lg overflow-hidden border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all"
-        >
-            <a href="/items/{{ item.id }}">
-                <img
-                    src="{{ item.image }}"
-                    alt="{{ item.name }}"
-                    class="w-full aspect-[2/3] object-cover"
-                    loading="lazy"
-                />
-            </a>
-            <div class="p-3">
-                <h3 class="text-xs font-semibold line-clamp-2">
-                    <a
-                        href="/items/{{ item.id }}"
-                        class="text-blue-600 hover:text-blue-700"
-                        >{{ item.name }}</a
-                    >
-                </h3>
+{% block title %}crunchy{% endblock %}
+
+{% block content %}
+{% set movies = library_items | selectattr('type', 'equalto', 'Movie') | list %}
+{% set series = library_items | selectattr('type', 'equalto', 'Series') | list %}
+
+<div class="space-y-6">
+    {{ ui.page_header("Library") }}
+
+    {% call ui.section_card(body_class="space-y-8") %}
+        {% if library_items %}
+        <section class="space-y-4">
+            <div class="flex items-center justify-between">
+                <h3 class="text-lg font-semibold text-slate-900">Movies</h3>
+                <span class="text-sm text-slate-400">{{ movies|length }}</span>
             </div>
-        </article>
-        {% endfor %}
-    </div>
-    {% else %}
-    <p class="text-gray-500">No library items</p>
-    {% endif %}
+            {% if movies %}
+            <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+                {% for item in movies %}
+                {{ ui.item_card(item) }}
+                {% endfor %}
+            </div>
+            {% else %}
+            {{ ui.empty_state("No movies found.") }}
+            {% endif %}
+        </section>
+
+        <section class="space-y-4">
+            <div class="flex items-center justify-between">
+                <h3 class="text-lg font-semibold text-slate-900">Series</h3>
+                <span class="text-sm text-slate-400">{{ series|length }}</span>
+            </div>
+            {% if series %}
+            <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+                {% for item in series %}
+                {{ ui.item_card(item) }}
+                {% endfor %}
+            </div>
+            {% else %}
+            {{ ui.empty_state("No series found.") }}
+            {% endif %}
+        </section>
+        {% else %}
+        {{ ui.empty_state("No library items") }}
+        {% endif %}
+    {% endcall %}
 </div>
 {% endblock %}

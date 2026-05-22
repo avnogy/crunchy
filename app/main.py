@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from mimetypes import guess_type
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -29,11 +30,12 @@ WEB_ROOT = Path(__file__).resolve().parent / "web"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    current_settings = app.state.settings
     logger.info(
         "Starting app with host=%s port=%s log_level=%s",
-        settings.app_host,
-        settings.app_port,
-        settings.log_level,
+        current_settings.app_host,
+        current_settings.app_port,
+        current_settings.log_level,
     )
     yield
     logger.info("Stopping app")
@@ -56,18 +58,15 @@ async def healthcheck():
     return {"status": "ok"}
 
 
-@app.get("/assets/{page}/page.js", dependencies=[Depends(require_basic_auth)])
-async def page_asset(page: str):
-    asset_path = WEB_ROOT / page / "page.js"
-    if not asset_path.is_file():
-        logger.warning("Missing page asset requested for page=%s", page)
+@app.get("/assets/{asset_path:path}", dependencies=[Depends(require_basic_auth)])
+async def asset_file(asset_path: str):
+    file_path = WEB_ROOT / asset_path
+    if not file_path.is_file() or WEB_ROOT not in file_path.resolve().parents:
+        logger.warning("Missing asset requested for path=%s", asset_path)
         raise HTTPException(status_code=404, detail="Asset not found")
-    logger.debug("Serving page asset for page=%s", page)
-    return FileResponse(asset_path, media_type="application/javascript")
-
-@app.get("/assets/toast.js")
-async def toast_asset():
-    return FileResponse(WEB_ROOT / "toast.js", media_type="application/javascript")
+    media_type = guess_type(file_path.name)[0] or "application/octet-stream"
+    logger.debug("Serving asset for path=%s", asset_path)
+    return FileResponse(file_path, media_type=media_type)
 
 
 app.include_router(home_router, dependencies=[Depends(require_basic_auth)])

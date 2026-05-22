@@ -8,7 +8,7 @@
 
   function show(message, type, duration) {
     const el = document.createElement('div');
-    el.className = 'toast flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium text-white shadow-sm transition-all duration-200 ' + type;
+    el.className = 'toast flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium shadow-sm transition-all duration-200 ' + type;
     el.onclick = () => {
     el.classList.remove('show');
     setTimeout(() => el.remove(), 200);
@@ -25,9 +25,9 @@
   }
 
   window.toast = {
-    success: (msg) => show(msg, 'bg-green-500', 2500),
-    error: (msg) => show(msg, 'bg-red-500', 0),
-    info: (msg) => show(msg, 'bg-blue-500', 2500),
+    success: (msg) => show(msg, 'ui-toast-success', 2500),
+    error: (msg) => show(msg, 'ui-toast-error', 0),
+    info: (msg) => show(msg, 'ui-toast-info', 2500),
     show: show,
   };
 })();

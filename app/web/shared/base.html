@@ -5,30 +5,197 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>{% block title %}crunchy{% endblock %}</title>
         <script src="https://cdn.tailwindcss.com"></script>
+        <script>
+            tailwind.config = {
+                theme: {
+                    extend: {
+                        colors: {
+                            brand: {
+                                50: "#eff6ff",
+                                100: "#dbeafe",
+                                200: "#bfdbfe",
+                                300: "#93c5fd",
+                                500: "#3b82f6",
+                                600: "#2563eb",
+                                700: "#1d4ed8",
+                            },
+                        },
+                    },
+                },
+            };
+        </script>
+        <style>
+            :root {
+                --ui-accent-50: #eff6ff;
+                --ui-accent-100: #dbeafe;
+                --ui-accent-200: #bfdbfe;
+                --ui-accent-300: #93c5fd;
+                --ui-accent-600: #2563eb;
+                --ui-accent-700: #1d4ed8;
+                --ui-danger-50: #fff1f2;
+                --ui-danger-100: #ffe4e6;
+                --ui-danger-200: #fecdd3;
+                --ui-danger-700: #be123c;
+                --ui-success-50: #ecfdf5;
+                --ui-success-200: #a7f3d0;
+                --ui-success-700: #047857;
+                --ui-warning-50: #fffbeb;
+                --ui-warning-200: #fde68a;
+                --ui-warning-700: #b45309;
+                --ui-info-50: #f0f9ff;
+                --ui-info-200: #bae6fd;
+                --ui-info-700: #0369a1;
+                --ui-muted-50: #f8fafc;
+                --ui-muted-100: #f1f5f9;
+                --ui-muted-200: #e2e8f0;
+                --ui-muted-600: #475569;
+                --ui-muted-700: #334155;
+                --ui-ink-inverse: #ffffff;
+                --ui-code-bg: #020617;
+                --ui-code-fg: #e2e8f0;
+            }
+
+            .ui-button-primary {
+                background: var(--ui-accent-600);
+                color: var(--ui-ink-inverse);
+            }
+
+            .ui-button-primary:hover {
+                background: var(--ui-accent-700);
+            }
+
+            .ui-button-secondary {
+                border-color: rgb(203 213 225);
+                background: #fff;
+                color: var(--ui-muted-700);
+            }
+
+            .ui-button-secondary:hover {
+                background: var(--ui-muted-50);
+            }
+
+            .ui-button-danger {
+                border-color: var(--ui-danger-200);
+                background: var(--ui-danger-50);
+                color: var(--ui-danger-700);
+            }
+
+            .ui-button-danger:hover {
+                background: var(--ui-danger-100);
+            }
+
+            .ui-selected-card {
+                border-color: var(--ui-accent-300);
+                background: var(--ui-accent-50);
+            }
+
+            .ui-selected-indicator {
+                border-color: var(--ui-accent-600);
+                background: var(--ui-accent-600);
+                color: var(--ui-ink-inverse);
+            }
+
+            .ui-accent-control {
+                accent-color: var(--ui-accent-600);
+            }
+
+            .ui-pill-muted {
+                background: var(--ui-muted-100);
+                color: var(--ui-muted-600);
+                box-shadow: inset 0 0 0 1px var(--ui-muted-200);
+            }
+
+            .ui-status-success {
+                background: var(--ui-success-50);
+                color: var(--ui-success-700);
+                box-shadow: inset 0 0 0 1px var(--ui-success-200);
+            }
+
+            .ui-status-danger {
+                background: var(--ui-danger-50);
+                color: var(--ui-danger-700);
+                box-shadow: inset 0 0 0 1px var(--ui-danger-200);
+            }
+
+            .ui-status-warning {
+                background: var(--ui-warning-50);
+                color: var(--ui-warning-700);
+                box-shadow: inset 0 0 0 1px var(--ui-warning-200);
+            }
+
+            .ui-status-info {
+                background: var(--ui-info-50);
+                color: var(--ui-info-700);
+                box-shadow: inset 0 0 0 1px var(--ui-info-200);
+            }
+
+            .ui-status-muted {
+                background: var(--ui-muted-100);
+                color: var(--ui-muted-600);
+                box-shadow: inset 0 0 0 1px var(--ui-muted-200);
+            }
+
+            .ui-code-surface {
+                background: var(--ui-code-bg);
+                color: var(--ui-code-fg);
+            }
+
+            .ui-code-surface-error {
+                background: var(--ui-danger-50);
+                color: #9f1239;
+            }
+
+            .ui-input-error {
+                border-color: #f43f5e;
+            }
+
+            .ui-note-warning {
+                background: var(--ui-warning-50);
+                color: #78350f;
+            }
+
+            .ui-toast-success {
+                border-color: var(--ui-success-200);
+                background: #fff;
+                color: rgb(30 41 59);
+            }
+
+            .ui-toast-error {
+                border-color: var(--ui-danger-200);
+                background: var(--ui-danger-50);
+                color: #9f1239;
+            }
+
+            .ui-toast-info {
+                border-color: var(--ui-muted-200);
+                background: #fff;
+                color: rgb(30 41 59);
+            }
+        </style>
         {% block head %}{% endblock %}
     </head>
-    <body class="bg-gray-50 min-h-screen text-gray-800">
-        <div class="max-w-6xl mx-auto px-6 py-8">
-            <header class="flex justify-between items-center mb-8">
-                <h1 class="text-3xl font-bold text-gray-900">
-                    <a href="/" class="hover:text-blue-600">crunchy</a>
+    <body class="min-h-screen bg-stone-100 text-slate-800">
+        <div class="mx-auto max-w-6xl px-5 py-6 sm:px-6 sm:py-8">
+            <header class="mb-8 flex flex-col gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
+                <h1 class="text-2xl font-semibold tracking-tight text-slate-900">
+                    <a href="/" class="transition hover:text-slate-700">crunchy</a>
                 </h1>
-                <nav class="flex gap-6">
+                <nav class="flex flex-wrap gap-2 text-sm">
                     <a
                         href="/"
-                        class="{% if active_page == 'home' %}text-gray-900{% else %}text-blue-600 hover:text-blue-700{% endif %} font-medium"
+                        class="rounded-lg px-3 py-2 font-medium transition {% if active_page == 'home' %}bg-white text-slate-900 ring-1 ring-slate-200{% else %}text-slate-600 hover:bg-white hover:text-slate-900{% endif %}"
                     >
                         Library
                     </a>
                     <a
                         href="/jobs"
-                        class="{% if active_page == 'jobs' %}text-gray-900{% else %}text-blue-600 hover:text-blue-700{% endif %} font-medium"
+                        class="rounded-lg px-3 py-2 font-medium transition {% if active_page == 'jobs' %}bg-white text-slate-900 ring-1 ring-slate-200{% else %}text-slate-600 hover:bg-white hover:text-slate-900{% endif %}"
                     >
                         Jobs
                     </a>
                     <a
                         href="/settings"
-                        class="{% if active_page == 'settings' %}text-gray-900{% else %}text-blue-600 hover:text-blue-700{% endif %} font-medium"
+                        class="rounded-lg px-3 py-2 font-medium transition {% if active_page == 'settings' %}bg-white text-slate-900 ring-1 ring-slate-200{% else %}text-slate-600 hover:bg-white hover:text-slate-900{% endif %}"
                     >
                         Settings
                     </a>
@@ -38,6 +205,7 @@
             {% block content %}{% endblock %}
         </div>
         <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2"></div>
+        <script src="/assets/shared/ui.js"></script>
         <script src="/assets/toast.js"></script>
         {% block scripts %}{% endblock %}
     </body>
