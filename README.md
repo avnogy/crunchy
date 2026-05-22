@@ -13,17 +13,17 @@ Jellyfin does not have a built-in offline sync flow that fits this use case, and
 ## Quick Start
 
 ```bash
-docker compose up
+docker compose -f docker/docker-compose.yml up
 ```
 
 Set the values you need in `.env` first.
 
-`docker-compose.yml` now uses a **shared RAM-backed tmpfs volume** (`shared_temp`) for the internal path `/data/temp`. Both the web app and the ffmpeg worker mount this same temporary filesystem, so files such as job logs are immediately visible to the API.
+`docker/docker-compose.yml` now uses a **shared RAM-backed tmpfs volume** (`shared_temp`) for the internal path `/data/temp`. Both the web app and the ffmpeg worker mount this same temporary filesystem, so files such as job logs are immediately visible to the API.
 
 For local development with a local image build, use:
 
 ```bash
-docker compose -f docker-compose.dev.yml up --build
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up --build
 ```
 
 | Variable | Default | Notes |
@@ -33,7 +33,9 @@ docker compose -f docker-compose.dev.yml up --build
 | `JELLYFIN_USER_ID` | `""` | Jellyfin user ID used for library access and transcoding. |
 | `APP_PASSWORD` | `""` | Basic auth password for the fixed `admin` user. If empty on first boot, one is generated and can be found in the log output. |
 | `SETTINGS_FILE` | `/config/settings.json` | Runtime settings file path. |
-| `OUTPUT_PATH` | `./output` | Host-side path mounted to the fixed in-container output directory `/data/output`. |
+| `REDIS_HOST` | `redis` | Redis host used by the app and worker on the default Compose network. |
+| `REDIS_PORT` | `6379` | Redis port used by the app and worker. |
+| `OUTPUT_PATH` | `./data/output` | Host-side path mounted to the fixed in-container output directory `/data/output`. |
 | `JOBS_POLL_INTERVAL_MS` | `3000` | UI job status polling interval. |
 | `APP_HOST` | `0.0.0.0` | App bind host. |
 | `APP_PORT` | `8000` | App bind port. |
@@ -57,9 +59,9 @@ If you prefer the temporary files to be stored on disk instead, replace the `sha
 ```yaml
 
 volumes:
-  - ${OUTPUT_PATH:-./output}:/data/output
-  - ./config:/config
-  - ./temp:/data/temp
+  - ${OUTPUT_PATH:-../data/output}:/data/output
+  - ../data/config:/config
+  - ../temp:/data/temp
 ```
 
 The ffmpeg worker lives under [`worker/`](./worker) as a separate service that only communicates through Redis. To process more jobs in parallel, scale the `ffmpeg-worker` service.
@@ -70,9 +72,10 @@ GitHub Actions can publish an image to `ghcr.io` from `main` and from version ta
 
 The existing `APP_UID` and `APP_GID` behavior is preserved for both local builds and published images:
 
-- Production `docker compose up` uses `ghcr.io/avnogy/crunchy:latest` by default and can be overridden with `CRUNCHY_IMAGE`.
-- Local `docker compose -f docker-compose.dev.yml up --build` still works with a local build.
+- Production `docker compose -f docker/docker-compose.yml up` uses `ghcr.io/avnogy/crunchy:latest` by default and can be overridden with `CRUNCHY_IMAGE`.
+- Local `docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up --build` still works with a local build.
 - Published images can remap the `crunchy` user at container startup by setting `APP_UID` and `APP_GID` as environment variables.
+- The bundled application code under `/app` is shipped read-only in the image; runtime writes are expected under `/config`, `/data/output`, and `/data/temp`.
 
 ## Notes
 

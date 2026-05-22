@@ -1,0 +1,48 @@
+x-app-common: &app-common
+  image: ${CRUNCHY_IMAGE:-ghcr.io/avnogy/crunchy:latest}
+  env_file:
+    - .env
+  environment: &app-environment
+    APP_UID: ${APP_UID:-1000}
+    APP_GID: ${APP_GID:-1000}
+    REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+    REDIS_PORT: 6379
+  depends_on:
+    - redis
+
+x-app-volumes: &app-volumes
+  - ./data/config:/config
+  - ${OUTPUT_PATH:-./data/output}:/data/output
+  - shared_temp:/data/temp
+
+services:
+  redis:
+    image: redis:alpine
+    command: redis-server --save 60 1 --loglevel warning
+    network_mode: host
+    volumes:
+      - redis_data:/data
+
+  crunchy:
+    <<: *app-common
+    network_mode: host
+    volumes: *app-volumes
+
+  ffmpeg-worker:
+    <<: *app-common
+    network_mode: host
+    environment:
+      <<: *app-environment
+      CRUNCHY_SERVICE_MODE: worker
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      FFMPEG_FLAGS: ${FFMPEG_FLAGS:-}
+    volumes: *app-volumes
+
+volumes:
+  redis_data:
+  shared_temp:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: rw
