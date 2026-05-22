@@ -1,0 +1,33 @@
+{% import "shared/macros.html" as ui %}
+
+{% call ui.section_card("Download", body_class="space-y-4") %}
+<form id="download-form" data-ui="download-form" class="flex flex-col gap-3">
+    <input type="hidden" name="item_id" value="{{ item.Id }}" />
+    <input type="hidden" name="item_name" value="{{ item.Name }}" />
+
+    {% call ui.form_field("Preset") %}
+    <select name="preset" id="preset" class="min-w-0 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-700">
+        {% for key, preset in presets.items() %}
+        <option value="{{ key }}">{{ preset.name }}</option>
+        {% endfor %}
+    </select>
+    {% endcall %}
+
+    {% if item.audio_streams %}
+    {% call ui.form_field("Audio") %}
+    <select name="audio_stream_index" class="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+        {% for a in item.audio_streams %}
+        <option value="{{ a.index }}" {% if loop.first %}selected{% endif %}>{{ a.language|default('unknown') }} ({{ a.codec }})</option>
+        {% endfor %}
+    </select>
+    {% endcall %}
+    {% endif %}
+
+    <button
+        type="submit"
+        class="ui-button-primary inline-flex w-full items-center justify-center rounded-lg px-5 py-2.5 text-sm font-semibold transition"
+    >
+        Download
+    </button>
+</form>
+{% endcall %}

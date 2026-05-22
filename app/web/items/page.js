@@ -1,19 +1,7 @@
-async function createJob(payload) {
-  const resp = await fetch("/api/jobs", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  let result = null;
-  try {
-    result = await resp.json();
-  } catch (error) {
-    result = null;
-  }
-
-  return { ok: resp.ok, result };
-}
+const EPISODE_CARD_SELECTED_CLASSES = ["ui-selected-card"];
+const EPISODE_CARD_IDLE_CLASSES = ["border-slate-200", "bg-white"];
+const EPISODE_BADGE_SELECTED_CLASSES = ["ui-selected-indicator"];
+const EPISODE_BADGE_IDLE_CLASSES = ["border-slate-300", "bg-white", "text-transparent"];
 
 function isInteractiveTarget(target) {
   return Boolean(
@@ -23,37 +11,51 @@ function isInteractiveTarget(target) {
   );
 }
 
-function syncEpisodeCardState(card, checked) {
-  card.dataset.selected = checked ? "true" : "false";
-  card.classList.toggle("border-blue-400", checked);
-  card.classList.toggle("bg-blue-50", checked);
-  card.classList.toggle("shadow-md", checked);
-  card.classList.toggle("border-gray-200", !checked);
-  card.classList.toggle("bg-gray-50", !checked);
-  card.classList.toggle("shadow-sm", !checked);
-
-  const badge = card.querySelector(".episode-selection-indicator");
-  if (badge) {
-    badge.classList.toggle("border-blue-600", checked);
-    badge.classList.toggle("bg-blue-600", checked);
-    badge.classList.toggle("text-white", checked);
-    badge.classList.toggle("border-gray-300", !checked);
-    badge.classList.toggle("bg-white", !checked);
-    badge.classList.toggle("text-transparent", !checked);
+async function createJob(payload) {
+  try {
+    const result = await window.ui.requestJson("/api/jobs", {
+      method: "POST",
+      body: payload,
+    });
+    return { ok: true, result };
+  } catch (error) {
+    return { ok: false, result: error.data || { detail: error.message } };
   }
 }
 
-function updateSelectionSummary() {
-  const checkboxes = Array.from(
-    document.querySelectorAll('input[name="item_ids"]'),
-  );
-  if (checkboxes.length === 0) {
+function getEpisodeCheckboxes() {
+  return window.ui.queryAll('input[name="item_ids"]');
+}
+
+function syncEpisodeCardState(checkbox) {
+  const card = checkbox.closest(".episode-card");
+  if (!card) {
     return;
   }
 
-  const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+  const checked = checkbox.checked;
+  card.dataset.selected = checked ? "true" : "false";
+  window.ui.toggleClasses(
+    card,
+    checked,
+    EPISODE_CARD_SELECTED_CLASSES,
+    EPISODE_CARD_IDLE_CLASSES,
+  );
+
+  const badge = card.querySelector(".episode-selection-indicator");
+  window.ui.toggleClasses(
+    badge,
+    checked,
+    EPISODE_BADGE_SELECTED_CLASSES,
+    EPISODE_BADGE_IDLE_CLASSES,
+  );
+}
+
+function updateSelectionSummary() {
+  const selectedCount = getEpisodeCheckboxes().filter((checkbox) => checkbox.checked).length;
   const countEl = document.getElementById("selected-count");
   const suffixEl = document.getElementById("selected-count-suffix");
+
   if (countEl) {
     countEl.textContent = String(selectedCount);
   }
@@ -64,111 +66,41 @@ function updateSelectionSummary() {
 
 function setCheckedState(checkbox, checked) {
   checkbox.checked = checked;
-  const card = checkbox.closest(".episode-card");
-  if (card) {
-    syncEpisodeCardState(card, checked);
-  }
+  syncEpisodeCardState(checkbox);
 }
 
-document
-  .getElementById("download-form")
-  ?.addEventListener("submit", async (event) => {
-    event.preventDefault();
+async function submitSingleDownload(form) {
+  const submitButton = form.querySelector('button[type="submit"]');
 
-    const form = event.target;
+  await window.ui.withBusyState(submitButton, "Saving...", async () => {
+    const { ok, result } = await createJob({
+      item_id: form.item_id.value,
+      item_name: form.item_name.value,
+      preset: form.preset.value,
+      audio_stream_index:
+        form.audio_stream_index?.value !== "" ? Number(form.audio_stream_index.value) : null,
+    });
 
-    try {
-      const { ok, result } = await createJob({
-        item_id: form.item_id.value,
-        item_name: form.item_name.value,
-        preset: form.preset.value,
-        audio_stream_index:
-          form.audio_stream_index?.value !== ""
-            ? Number(form.audio_stream_index.value)
-            : null,
-      });
-
-      if (ok) {
-        const message = result?.deduped ? "Job already exists!" : "Job created!";
-        toast.success(message);
-        return;
-      }
-
-      toast.error(result?.detail || "Unknown error");
-    } catch (error) {
-      toast.error("Failed to create job");
+    if (ok) {
+      toast.success(result?.deduped ? "Job already exists!" : "Job created!");
+      return;
     }
+
+    toast.error(result?.detail || "Unknown error");
   });
+}
 
-const batchPreset = document.getElementById("batch-preset");
-const batchPresetProxy = document.getElementById("batch-preset-mobile-proxy");
-
-batchPreset?.addEventListener("change", () => {
-  if (batchPresetProxy) {
-    batchPresetProxy.value = batchPreset.value;
-  }
-});
-
-const episodeCheckboxes = Array.from(
-  document.querySelectorAll('input[name="item_ids"]'),
-);
-
-episodeCheckboxes.forEach((checkbox) => {
-  const card = checkbox.closest(".episode-card");
-  if (!card) {
+async function submitBatchDownload(form) {
+  const checked = getEpisodeCheckboxes().filter((checkbox) => checkbox.checked);
+  if (checked.length === 0) {
+    toast.error("Select at least one episode");
     return;
   }
 
-  syncEpisodeCardState(card, checkbox.checked);
+  const submitButton = form.querySelector('button[type="submit"]');
+  const preset = form.preset.value;
 
-  checkbox.addEventListener("change", () => {
-    syncEpisodeCardState(card, checkbox.checked);
-    updateSelectionSummary();
-  });
-
-  card.addEventListener("click", (event) => {
-    if (isInteractiveTarget(event.target)) {
-      return;
-    }
-
-    setCheckedState(checkbox, !checkbox.checked);
-    updateSelectionSummary();
-  });
-});
-
-document.querySelectorAll("[data-batch-action]").forEach((button) => {
-  button.addEventListener("click", () => {
-    const action = button.dataset.batchAction;
-
-    episodeCheckboxes.forEach((checkbox) => {
-      if (action === "all") {
-        setCheckedState(checkbox, true);
-      } else if (action === "none") {
-        setCheckedState(checkbox, false);
-      } else if (action === "invert") {
-        setCheckedState(checkbox, !checkbox.checked);
-      }
-    });
-
-    updateSelectionSummary();
-  });
-});
-
-updateSelectionSummary();
-
-document
-  .getElementById("batch-download-form")
-  ?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-
-    const form = event.target;
-    const checked = document.querySelectorAll('input[name="item_ids"]:checked');
-    if (checked.length === 0) {
-      toast.error("Select at least one episode");
-      return;
-    }
-
-    const preset = form.preset.value;
+  await window.ui.withBusyState(submitButton, "Queueing...", async () => {
     let created = 0;
     let deduped = 0;
     const errors = [];
@@ -212,5 +144,73 @@ document
       return;
     }
 
-    toast.error("Failed: " + errors.join(", "));
+    toast.error(`Failed: ${errors.join(", ")}`);
   });
+}
+
+function applyBatchAction(action) {
+  getEpisodeCheckboxes().forEach((checkbox) => {
+    if (action === "all") {
+      setCheckedState(checkbox, true);
+    } else if (action === "none") {
+      setCheckedState(checkbox, false);
+    } else if (action === "invert") {
+      setCheckedState(checkbox, !checkbox.checked);
+    }
+  });
+
+  updateSelectionSummary();
+}
+
+function initializeEpisodeCards() {
+  getEpisodeCheckboxes().forEach(syncEpisodeCardState);
+  updateSelectionSummary();
+}
+
+document.addEventListener("change", (event) => {
+  if (event.target.matches('input[name="item_ids"]')) {
+    syncEpisodeCardState(event.target);
+    updateSelectionSummary();
+    return;
+  }
+
+  if (event.target.id === "batch-preset") {
+    const proxy = document.getElementById("batch-preset-mobile-proxy");
+    if (proxy) {
+      proxy.value = event.target.value;
+    }
+  }
+});
+
+document.addEventListener("click", (event) => {
+  const batchActionButton = event.target.closest("[data-batch-action]");
+  if (batchActionButton) {
+    applyBatchAction(batchActionButton.dataset.batchAction);
+    return;
+  }
+
+  const card = event.target.closest(".episode-card");
+  if (!card || isInteractiveTarget(event.target)) {
+    return;
+  }
+
+  const checkbox = card.querySelector('input[name="item_ids"]');
+  if (!checkbox) {
+    return;
+  }
+
+  setCheckedState(checkbox, !checkbox.checked);
+  updateSelectionSummary();
+});
+
+window.ui.query("#download-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await submitSingleDownload(event.currentTarget);
+});
+
+window.ui.query("#batch-download-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await submitBatchDownload(event.currentTarget);
+});
+
+initializeEpisodeCards();
