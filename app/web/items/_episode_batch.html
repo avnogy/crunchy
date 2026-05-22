@@ -27,12 +27,7 @@ presets.keys()|list|first %} {% call ui.section_card("Episodes", actions='
   data-ui="batch-download-form"
   class="space-y-4 pb-32 sm:pb-28"
 >
-  <input
-    type="hidden"
-    name="preset"
-    id="batch-preset-mobile-proxy"
-    value="{{ presets.keys()|list|first }}"
-  />
+  <input type="hidden" name="preset" id="batch-preset-mobile-proxy" value="{{ default_preset }}" />
 
   <div class="space-y-2.5 sm:space-y-3">
     {% for child in children %}
@@ -114,7 +109,7 @@ presets.keys()|list|first %} {% call ui.section_card("Episodes", actions='
             </div>
           </div>
 
-          {% if child.audio_streams %}
+          {% if child.audio_streams and child.audio_streams|length > 1 %}
           <div class="rounded-lg bg-slate-50 p-3">
             {% call ui.form_field("Audio", sr_only=False) %}
             <select
@@ -123,17 +118,13 @@ presets.keys()|list|first %} {% call ui.section_card("Episodes", actions='
               class="episode-control w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
               aria-label="Audio stream for {{ child.name }}"
             >
+              {% set preferred_audio = child.audio_streams|selectattr("is_default")|list|first %}
+              {% if not preferred_audio %}
+              <option value="" selected>Jellyfin default track</option>
+              {% endif %}
               {% for a in child.audio_streams %}
-              <option
-                value="{{ a.index }}"
-                {%
-                if
-                loop.first
-                %}selected{%
-                endif
-                %}
-              >
-                {{ a.language|default('unknown') }} ({{ a.codec }})
+              <option value="{{ a.index }}" {% if preferred_audio and a.index == preferred_audio.index %}selected{% endif %}>
+                {{ a.title or a.language or 'unknown' }}{% if a.codec %} ({{ a.codec }}){% endif %}{% if a.is_default %} [default]{% endif %}
               </option>
               {% endfor %}
             </select>
@@ -171,16 +162,7 @@ presets.keys()|list|first %} {% call ui.section_card("Episodes", actions='
             class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
           >
             {% for key, preset in presets.items() %}
-            <option
-              value="{{ key }}"
-              {%
-              if
-              key=""
-              ="default_preset"
-              %}selected{%
-              endif
-              %}
-            >
+            <option value="{{ key }}" {% if key == default_preset %}selected{% endif %}>
               {{ preset.name }}
             </option>
             {% endfor %}

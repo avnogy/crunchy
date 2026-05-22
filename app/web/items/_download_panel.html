@@ -14,14 +14,19 @@ body_class="space-y-4") %}
     <option value="{{ key }}">{{ preset.name }}</option>
     {% endfor %}
   </select>
-  {% endcall %} {% if item.audio_streams %} {% call ui.form_field("Audio") %}
+  {% endcall %} {% if item.audio_streams and item.audio_streams|length > 1 %} {% call
+  ui.form_field("Audio") %}
   <select
     name="audio_stream_index"
     class="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700"
   >
+    {% set preferred_audio = item.audio_streams|selectattr("is_default")|list|first %}
+    {% if not preferred_audio %}
+    <option value="" selected>Jellyfin default track</option>
+    {% endif %}
     {% for a in item.audio_streams %}
-    <option value="{{ a.index }}" {% if loop.first %}selected{% endif %}>
-      {{ a.language|default('unknown') }} ({{ a.codec }})
+    <option value="{{ a.index }}" {% if preferred_audio and a.index == preferred_audio.index %}selected{% endif %}>
+      {{ a.title or a.language or 'unknown' }}{% if a.codec %} ({{ a.codec }}){% endif %}{% if a.is_default %} [default]{% endif %}
     </option>
     {% endfor %}
   </select>

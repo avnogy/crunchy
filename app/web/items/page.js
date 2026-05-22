@@ -75,6 +75,14 @@ function setCheckedState(checkbox, checked) {
   syncEpisodeCardState(checkbox);
 }
 
+function getAudioStreamIndex(select) {
+  if (!select || select.value === "") {
+    return null;
+  }
+
+  return Number(select.value);
+}
+
 async function submitSingleDownload(form) {
   const submitButton = form.querySelector('button[type="submit"]');
 
@@ -83,10 +91,7 @@ async function submitSingleDownload(form) {
       item_id: form.item_id.value,
       item_name: form.item_name.value,
       preset: form.preset.value,
-      audio_stream_index:
-        form.audio_stream_index?.value !== ""
-          ? Number(form.audio_stream_index.value)
-          : null,
+      audio_stream_index: getAudioStreamIndex(form.audio_stream_index),
     });
 
     if (ok) {
@@ -106,7 +111,11 @@ async function submitBatchDownload(form) {
   }
 
   const submitButton = form.querySelector('button[type="submit"]');
-  const preset = form.preset.value;
+  const preset = form.querySelector('[name="preset"]')?.value;
+  if (!preset) {
+    toast.error("Missing preset");
+    return;
+  }
 
   await window.ui.withBusyState(submitButton, "Queueing...", async () => {
     let created = 0;
@@ -122,8 +131,7 @@ async function submitBatchDownload(form) {
           item_id: checkbox.value,
           item_name: checkbox.dataset.name,
           preset,
-          audio_stream_index:
-            audioSelect?.value !== "" ? Number(audioSelect.value) : null,
+          audio_stream_index: getAudioStreamIndex(audioSelect),
         });
 
         if (ok) {
