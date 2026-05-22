@@ -26,6 +26,16 @@ logger = logging.getLogger(__name__)
 CANCEL_CHECK_INTERVAL = 2.0
 
 
+def _terminate_process(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    try:
+        process.terminate()
+    except ProcessLookupError:
+        # ffmpeg can exit between the liveness check and terminate().
+        pass
+
+
 async def _read_ffmpeg_streams(
     store: JobStore,
     job_id: str,
@@ -42,8 +52,7 @@ async def _read_ffmpeg_streams(
                 current_job = await store.get(job_id)
                 if current_job and current_job.cancel_requested:
                     cancel_requested.set()
-                    if process.returncode is None:
-                        process.terminate()
+                    _terminate_process(process)
                     break
             except Exception:
                 pass
@@ -111,7 +120,7 @@ async def _read_ffmpeg_streams(
         await progress_task
     if cancel_requested.is_set():
         logger.info("Cancelling running job %s", job_id)
-        process.terminate()
+        _terminate_process(process)
         try:
             await asyncio.wait_for(process.wait(), timeout=10)
         except asyncio.TimeoutError:
