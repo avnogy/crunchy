@@ -15,7 +15,7 @@ Workers can be scaled horizontally because they only coordinate through Redis.
 ## Quick Start
 
 1. You can copy `.env.example` to `.env` and fill it up or just skip it and set everything in the UI.
-2. Start the stack:
+2. Start the stack with [`./docker/docker-compose.yml`](./docker/docker-compose.yml):
 
 ```bash
 docker compose -f docker/docker-compose.yml up
@@ -51,7 +51,7 @@ If `APP_PASSWORD` is empty on first boot, `crunchy` generates a password for the
 | `FFMPEG_FLAGS`          | `""`                            | Extra ffmpeg flags. The app parses this like a shell command line and rejects reserved flags that would override required options. |
 | `APP_UID`               | `1000`                          | Optional runtime UID override for the container user.                                                                              |
 | `APP_GID`               | `1000`                          | Optional runtime GID override for the container group.                                                                             |
-| `CRUNCHY_IMAGE`         | `ghcr.io/avnogy/crunchy:latest` | Image used by `docker/docker-compose.yml`.                                                                                         |
+| `CRUNCHY_IMAGE`         | `ghcr.io/avnogy/crunchy:latest` | Image used by [`./docker/docker-compose.yml`](./docker/docker-compose.yml).                                                        |
 
 ## Paths
 
