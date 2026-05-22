@@ -4,6 +4,7 @@ set -eu
 APP_USER="crunchy"
 APP_HOME="/home/${APP_USER}"
 APP_DIR="/app"
+CONFIG_DIR="/config"
 DATA_DIR="/data"
 
 target_uid="${APP_UID:-}"
@@ -26,7 +27,7 @@ remap_user() {
 }
 
 fix_permissions() {
-    chown -R "${current_uid}:${current_gid}" "${APP_HOME}" "${DATA_DIR}"
+    chown -R "${current_uid}:${current_gid}" "${APP_HOME}" "${DATA_DIR}" "${CONFIG_DIR}"
 }
 
 if [ "$#" = "0" ]; then

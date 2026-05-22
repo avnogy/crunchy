@@ -11,9 +11,9 @@ x-app-common: &app-common
     - redis
 
 x-app-volumes: &app-volumes
-  - ./data/config:/config
+  - ${CONFIG_PATH:-./data/config}:/config
   - ${OUTPUT_PATH:-./data/output}:/data/output
-  - shared_temp:/data/temp
+  - ${TEMP_PATH:-./data/temp}:/data/temp
 
 services:
   redis:
@@ -40,9 +40,3 @@ services:
 
 volumes:
   redis_data:
-  shared_temp:
-    driver: local
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: rw

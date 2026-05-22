@@ -16,6 +16,7 @@ from app.api_models import (
 from app.presets import get_effective_presets
 
 logger = logging.getLogger(__name__)
+SETTINGS_PATH = Path("/config/settings.json")
 
 
 class Settings(SettingsModel):
@@ -31,8 +32,8 @@ class EnvSettings(SettingsModel, BaseSettings):
     ffmpeg_flags: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
 
-def _get_settings_path() -> Path:
-    return Path(os.getenv("SETTINGS_FILE", "/config/settings.json"))
+def get_settings_path() -> Path:
+    return SETTINGS_PATH
 
 
 def generate_app_password(length: int = 24) -> str:
@@ -50,7 +51,7 @@ def _load_env_settings() -> Settings:
 
 
 def load_settings() -> Settings:
-    path = _get_settings_path()
+    path = get_settings_path()
 
     if path.exists():
         try:
@@ -63,7 +64,7 @@ def load_settings() -> Settings:
 
 
 def save_settings(settings: Settings) -> None:
-    path = _get_settings_path()
+    path = get_settings_path()
     data = settings.model_dump()
     data["app_password"] = settings.app_password
     serialized = json.dumps(data, indent=2)
@@ -90,7 +91,7 @@ def save_settings(settings: Settings) -> None:
 
 def ensure_app_password(settings: Settings) -> None:
     if settings.app_password:
-        if not _get_settings_path().exists():
+        if not get_settings_path().exists():
             save_settings(settings)
         return
 
@@ -100,4 +101,4 @@ def ensure_app_password(settings: Settings) -> None:
         settings.app_password,
     )
     save_settings(settings)
-    logger.info("Persisted generated app password to %s", _get_settings_path())
+    logger.info("Persisted generated app password to %s", get_settings_path())
