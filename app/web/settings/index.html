@@ -36,6 +36,11 @@
 
     {% call ui.section_card("Paths") %}
     <div class="space-y-4">
+        {% call ui.form_field("Settings File") %}
+        <p class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700">/config/settings.json</p>
+        <p class="text-xs text-slate-500">Container path is fixed. Change the host-side Docker mount with <code>CONFIG_PATH</code> in your environment.</p>
+        {% endcall %}
+
         {% call ui.form_field("Worker Temp Directory") %}
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
             <p class="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700">{{ transcoding_temp_dir }}</p>
@@ -43,6 +48,7 @@
                 Empty
             </button>
         </div>
+        <p class="text-xs text-slate-500">Container path is fixed. Change the host-side Docker mount with <code>TEMP_PATH</code> in your environment.</p>
         {% endcall %}
 
         {% call ui.form_field("Output Directory") %}
@@ -52,6 +58,7 @@
                 Empty
             </button>
         </div>
+        <p class="text-xs text-slate-500">Container path is fixed. Change the host-side Docker mount with <code>OUTPUT_PATH</code> in your environment.</p>
         {% endcall %}
     </div>
     {% endcall %}

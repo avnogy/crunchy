@@ -10,77 +10,86 @@ Jellyfin does not have a built-in offline sync flow that fits this use case, and
 
 `crunchy` connects to Jellyfin, provides a web UI for browsing the library, starts a transcode job through Jellyfin, and exposes the finished file for download.
 
+Workers can be scaled horizontally because they only coordinate through Redis.
+
 ## Quick Start
+
+1. You can copy `.env.example` to `.env` and fill it up or just skip it and set everything in the UI.
+2. Start the stack:
 
 ```bash
 docker compose -f docker/docker-compose.yml up
 ```
 
-Set the values you need in `.env` first.
-
-`docker/docker-compose.yml` now uses a **shared RAM-backed tmpfs volume** (`shared_temp`) for the internal path `/data/temp`. Both the web app and the ffmpeg worker mount this same temporary filesystem, so files such as job logs are immediately visible to the API.
-
-For local development with a local image build, use:
+For local development with a local image build:
 
 ```bash
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up --build
 ```
 
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `JELLYFIN_API_URL` | `""` | Jellyfin base URL. |
-| `JELLYFIN_API_KEY` | `""` | Jellyfin API key. |
-| `JELLYFIN_USER_ID` | `""` | Jellyfin user ID used for library access and transcoding. |
-| `APP_PASSWORD` | `""` | Basic auth password for the fixed `admin` user. If empty on first boot, one is generated and can be found in the log output. |
-| `SETTINGS_FILE` | `/config/settings.json` | Runtime settings file path. |
-| `REDIS_HOST` | `redis` | Redis host used by the app and worker on the default Compose network. |
-| `REDIS_PORT` | `6379` | Redis port used by the app and worker. |
-| `OUTPUT_PATH` | `./data/output` | Host-side path mounted to the fixed in-container output directory `/data/output`. |
-| `JOBS_POLL_INTERVAL_MS` | `3000` | UI job status polling interval. |
-| `APP_HOST` | `0.0.0.0` | App bind host. |
-| `APP_PORT` | `8000` | App bind port. |
-| `LOG_LEVEL` | `INFO` | Application log level. |
-| `FFMPEG_FLAGS` | `""` | Extra ffmpeg flags, space-separated. |
-| `APP_UID` | `1000` | Optional runtime UID override for the container user. |
-| `APP_GID` | `1000` | Optional runtime GID override for the container group. |
-| `CRUNCHY_IMAGE` | `ghcr.io/avnogy/crunchy:latest` | Image used by the compose files. |
+## Configuration
 
-## Shared Temp Storage
+Environment variables are used as the initial settings source. After first boot, the app persists settings to `/config/settings.json`, and changes made in the Settings page become the active configuration for later restarts.
 
-The app and the worker always use the fixed internal paths `/data/temp` and `/data/output`.
+If `APP_PASSWORD` is empty on first boot, `crunchy` generates a password for the fixed Basic Auth user `admin`, logs it once at startup, and saves it in `/config/settings.json`.
 
-- By default a **RAM-backed `tmpfs` volume** named `shared_temp` is mounted at `/data/temp`. This volume is shared between the `crunchy` and `ffmpeg-worker` services, allowing temporary files (e.g., ffmpeg logs) to be accessed by both containers.
-- `OUTPUT_PATH` controls the host path for completed downloads at `/data/output` and remains unchanged.
+| Variable                | Default                         | Notes                                                                                                                              |
+| ----------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `JELLYFIN_API_URL`      | `""`                            | Jellyfin base URL.                                                                                                                 |
+| `JELLYFIN_API_KEY`      | `""`                            | Jellyfin API key.                                                                                                                  |
+| `JELLYFIN_USER_ID`      | `""`                            | Jellyfin user ID used for library access and playback info.                                                                        |
+| `APP_PASSWORD`          | `""`                            | Password for the fixed Basic Auth user `admin`.                                                                                    |
+| `CONFIG_PATH`           | `./data/config`                 | Host path mounted at `/config`.                                                                                                    |
+| `OUTPUT_PATH`           | `./data/output`                 | Host path mounted at `/data/output`.                                                                                               |
+| `TEMP_PATH`             | `./data/temp`                   | Host path mounted at `/data/temp`.                                                                                                 |
+| `REDIS_HOST`            | `127.0.0.1`                     | Redis host used by the app and worker in the default host-networked compose setup.                                                 |
+| `REDIS_PORT`            | `6379`                          | Redis port used by the app and worker.                                                                                             |
+| `JOBS_POLL_INTERVAL_MS` | `3000`                          | UI polling interval for the Jobs page. Minimum `500`.                                                                              |
+| `APP_HOST`              | `0.0.0.0`                       | App bind host.                                                                                                                     |
+| `APP_PORT`              | `8000`                          | App bind port.                                                                                                                     |
+| `LOG_LEVEL`             | `INFO`                          | One of the app's supported log levels.                                                                                             |
+| `FFMPEG_FLAGS`          | `""`                            | Extra ffmpeg flags. The app parses this like a shell command line and rejects reserved flags that would override required options. |
+| `APP_UID`               | `1000`                          | Optional runtime UID override for the container user.                                                                              |
+| `APP_GID`               | `1000`                          | Optional runtime GID override for the container group.                                                                             |
+| `CRUNCHY_IMAGE`         | `ghcr.io/avnogy/crunchy:latest` | Image used by `docker/docker-compose.yml`.                                                                                         |
 
-Use RAM-backed temp storage when you want faster temporary I/O and want the temporary files to disappear on container restart.
+## Paths
 
-If you prefer the temporary files to be stored on disk instead, replace the `shared_temp:/data/temp` mount in both services with a bind mount, for example:
+The app and workers always use fixed in-container paths:
 
-```yaml
+- `/config/settings.json`
+- `/data/temp`
+- `/data/output`
 
-volumes:
-  - ${OUTPUT_PATH:-../data/output}:/data/output
-  - ../data/config:/config
-  - ../temp:/data/temp
-```
+`CONFIG_PATH`, `TEMP_PATH`, and `OUTPUT_PATH` only change the host-side bind mounts. After changing any of them, restart the containers so Docker recreates the mounts.
 
-The ffmpeg worker lives under [`worker/`](./worker) as a separate service that only communicates through Redis. To process more jobs in parallel, scale the `ffmpeg-worker` service.
+Both the web app and the worker mount the same config, temp, and output directories so job logs and completed files are immediately visible to the API.
 
-## Container Releases
+## Presets
 
-GitHub Actions can publish an image to `ghcr.io` from `main` and from version tags like `v1.0.0`.
+The Settings page manages named transcode presets. Jobs reference those presets by key.
 
-The existing `APP_UID` and `APP_GID` behavior is preserved for both local builds and published images:
+Each preset can define:
 
-- Production `docker compose -f docker/docker-compose.yml up` uses `ghcr.io/avnogy/crunchy:latest` by default and can be overridden with `CRUNCHY_IMAGE`.
-- Local `docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up --build` still works with a local build.
-- Published images can remap the `crunchy` user at container startup by setting `APP_UID` and `APP_GID` as environment variables.
-- The bundled application code under `/app` is shipped read-only in the image; runtime writes are expected under `/config`, `/data/output`, and `/data/temp`.
+- `name`
+- `maxHeight`
+- `videoBitrate`
+- `audioBitrate`
+- `videoCodec`
+- `audioCodec`
+- `segmentContainer`
+
+The built-in defaults target smaller downloads and currently use `h265`, `aac`, and `mp4`.
+
+## Operations
+
+- Health check: `GET /healthz`
+- Authentication: HTTP Basic Auth with the fixed username `admin`
+- Worker scaling: scale `ffmpeg-worker` if you want to process more queued jobs in parallel
+- Downloads and temp files can be cleared from the Settings page
+- Jobs can be cancelled from the Jobs page
 
 ## Notes
 
 - Run it behind HTTPS if you expose it outside your local network.
-
-## Presets
-
-There are a few default presets for smaller mobile downloads, and they can be adjusted in the app settings. Each preset can define `maxHeight`, `videoBitrate`, `audioBitrate`, `videoCodec`, `audioCodec`, and `segmentContainer`; the defaults use `h265`, `aac`, and `mp4`.
+- Runtime writes are expected under `/config`, `/data/output`, and `/data/temp`; the bundled application code under `/app` is read-only in the container image.
