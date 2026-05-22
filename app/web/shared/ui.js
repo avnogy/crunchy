@@ -102,7 +102,12 @@
     `;
   }
 
-  function toggleClasses(element, shouldApply, enabledClasses, disabledClasses = []) {
+  function toggleClasses(
+    element,
+    shouldApply,
+    enabledClasses,
+    disabledClasses = [],
+  ) {
     if (!element) {
       return;
     }

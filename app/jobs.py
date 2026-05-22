@@ -74,7 +74,12 @@ class Job(BaseModel):
         return bool(self.output_path and Path(self.output_path).exists())
 
 
-def new_job(item_id: str, item_name: str, preset: dict[str, Any], audio_stream_index: int | None = None) -> Job:
+def new_job(
+    item_id: str,
+    item_name: str,
+    preset: dict[str, Any],
+    audio_stream_index: int | None = None,
+) -> Job:
     return Job(
         item_id=item_id,
         item_name=item_name,
@@ -109,7 +114,10 @@ class JobStore:
         return [Job.model_validate_json(v) for v in values if v]
 
     async def find_reusable_by_item_and_preset(
-        self, item_id: str, preset: dict[str, Any], audio_stream_index: int | None = None
+        self,
+        item_id: str,
+        preset: dict[str, Any],
+        audio_stream_index: int | None = None,
     ) -> Job | None:
         signature = json.dumps(preset, sort_keys=True, separators=(",", ":"))
         for job in await self.list():
@@ -135,6 +143,8 @@ class JobStore:
         job = Job.model_validate_json(data)
         updated = job.model_copy(update=changes)
 
-        await self.client.set(key, updated.model_dump_json(exclude_computed_fields=True))
+        await self.client.set(
+            key, updated.model_dump_json(exclude_computed_fields=True)
+        )
 
         return updated

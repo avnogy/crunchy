@@ -48,7 +48,9 @@ function getEta(job) {
     return "-";
   }
 
-  const etaMinutes = Math.round((job.progress.duration - currentSecs) / speed / 60);
+  const etaMinutes = Math.round(
+    (job.progress.duration - currentSecs) / speed / 60,
+  );
   return etaMinutes > 0 ? `${etaMinutes}m` : "-";
 }
 
@@ -107,7 +109,9 @@ function renderJobCard(job) {
   const expanded = expandedJobs.has(job.id);
   const safeJobId = window.ui.escapeHtml(job.id);
   const safeItemName = window.ui.escapeHtml(job.item_name);
-  const safePresetName = window.ui.escapeHtml(job.preset?.name || job.preset || "");
+  const safePresetName = window.ui.escapeHtml(
+    job.preset?.name || job.preset || "",
+  );
   const safeErrorMessage = window.ui.escapeHtml(job.error_message || "");
   const safeState = window.ui.escapeHtml(job.state || "");
   const showProgress = job.state === "running" || job.state === "queued";
@@ -129,7 +133,9 @@ function renderJobCard(job) {
   ];
 
   if (showProgress) {
-    details.push(renderMetaRow("Speed", window.ui.escapeHtml(job.speed || "-")));
+    details.push(
+      renderMetaRow("Speed", window.ui.escapeHtml(job.speed || "-")),
+    );
     details.push(
       renderMetaRow(
         "Duration",
@@ -149,9 +155,7 @@ function renderJobCard(job) {
     );
   }
   if (job.error_message) {
-    details.push(
-      renderMetaRow("Error", safeErrorMessage, "md:col-span-2"),
-    );
+    details.push(renderMetaRow("Error", safeErrorMessage, "md:col-span-2"));
   }
 
   return `

@@ -54,9 +54,7 @@ def get_ffmpeg_command(
     return args
 
 
-def _build_transcode_url(
-    settings: Settings, job: Job, source_id: str
-) -> str:
+def _build_transcode_url(settings: Settings, job: Job, source_id: str) -> str:
     url = f"{settings.jellyfin_api_url}/Videos/{job.item_id}/main.m3u8"
     preset = Preset(**job.preset)
     params = {
@@ -78,9 +76,7 @@ def _build_transcode_url(
     return f"{url}?{urlencode(params)}"
 
 
-async def enqueue_job(
-    job: Job, settings: Settings, store: JobStore
-) -> Job:
+async def enqueue_job(job: Job, settings: Settings, store: JobStore) -> Job:
     logger.info("Enqueuing job %s: %s", job.id, job.item_name)
 
     client = JellyfinClient(settings)
@@ -104,9 +100,7 @@ async def enqueue_job(
                 run_time_ticks,
             )
 
-        input_url = _build_transcode_url(
-            settings, job, source_id
-        )
+        input_url = _build_transcode_url(settings, job, source_id)
     output_path = build_output_path(job)
     job.input_url = input_url
 

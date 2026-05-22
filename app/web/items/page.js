@@ -1,7 +1,11 @@
 const EPISODE_CARD_SELECTED_CLASSES = ["ui-selected-card"];
 const EPISODE_CARD_IDLE_CLASSES = ["border-slate-200", "bg-white"];
 const EPISODE_BADGE_SELECTED_CLASSES = ["ui-selected-indicator"];
-const EPISODE_BADGE_IDLE_CLASSES = ["border-slate-300", "bg-white", "text-transparent"];
+const EPISODE_BADGE_IDLE_CLASSES = [
+  "border-slate-300",
+  "bg-white",
+  "text-transparent",
+];
 
 function isInteractiveTarget(target) {
   return Boolean(
@@ -52,7 +56,9 @@ function syncEpisodeCardState(checkbox) {
 }
 
 function updateSelectionSummary() {
-  const selectedCount = getEpisodeCheckboxes().filter((checkbox) => checkbox.checked).length;
+  const selectedCount = getEpisodeCheckboxes().filter(
+    (checkbox) => checkbox.checked,
+  ).length;
   const countEl = document.getElementById("selected-count");
   const suffixEl = document.getElementById("selected-count-suffix");
 
@@ -78,7 +84,9 @@ async function submitSingleDownload(form) {
       item_name: form.item_name.value,
       preset: form.preset.value,
       audio_stream_index:
-        form.audio_stream_index?.value !== "" ? Number(form.audio_stream_index.value) : null,
+        form.audio_stream_index?.value !== ""
+          ? Number(form.audio_stream_index.value)
+          : null,
     });
 
     if (ok) {
@@ -208,9 +216,11 @@ window.ui.query("#download-form")?.addEventListener("submit", async (event) => {
   await submitSingleDownload(event.currentTarget);
 });
 
-window.ui.query("#batch-download-form")?.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  await submitBatchDownload(event.currentTarget);
-});
+window.ui
+  .query("#batch-download-form")
+  ?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitBatchDownload(event.currentTarget);
+  });
 
 initializeEpisodeCards();

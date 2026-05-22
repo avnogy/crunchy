@@ -1,50 +1,40 @@
-{% extends "shared/base.html" %}
-{% import "shared/macros.html" as ui %}
-
-{% block title %}{{ item.Name }} · crunchy{% endblock %}
-
-{% block content %}
-{% set has_episode_children = children and children[0].type == 'Episode' %}
-{% set show_sidebar_download = item.Type != 'Season' and item.Type != 'Movie' %}
+{% extends "shared/base.html" %} {% import "shared/macros.html" as ui %} {%
+block title %}{{ item.Name }} · crunchy{% endblock %} {% block content %} {% set
+has_episode_children = children and children[0].type == 'Episode' %} {% set
+show_sidebar_download = item.Type != 'Season' and item.Type != 'Movie' %}
 
 <div class="space-y-5 sm:space-y-6">
-    <button onclick="history.back()" class="inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition hover:text-slate-700">
-        <span aria-hidden="true">←</span>
-        <span>Back</span>
-    </button>
+  <button
+    onclick="history.back()"
+    class="inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition hover:text-slate-700"
+  >
+    <span aria-hidden="true">←</span>
+    <span>Back</span>
+  </button>
 
-    <div class="grid gap-6 {% if show_sidebar_download %}xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start{% endif %}">
-        <div class="space-y-5 sm:space-y-6">
-            {% include "items/_header.html" %}
-
-            {% if item.Type == 'Movie' %}
-            {% include "items/_download_panel.html" %}
-            {% endif %}
-
-            {% if children and has_episode_children %}
-            {% include "items/_episode_batch.html" %}
-            {% elif children %}
-            {% include "items/_child_grid.html" %}
-            {% endif %}
-
-            {% if item.Type == 'Season' and not children %}
-            {% call ui.section_card("No Episodes", body_class="ui-note-warning space-y-3") %}
-            <p class="text-sm leading-6">
-                No episodes were returned for this season.
-            </p>
-            {% endcall %}
-            {% endif %}
-        </div>
-
-        {% if show_sidebar_download %}
-        <aside class="xl:sticky xl:top-6">
-            {% include "items/_download_panel.html" %}
-        </aside>
-        {% endif %}
+  <div
+    class="grid gap-6 {% if show_sidebar_download %}xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start{% endif %}"
+  >
+    <div class="space-y-5 sm:space-y-6">
+      {% include "items/_header.html" %} {% if item.Type == 'Movie' %} {%
+      include "items/_download_panel.html" %} {% endif %} {% if children and
+      has_episode_children %} {% include "items/_episode_batch.html" %} {% elif
+      children %} {% include "items/_child_grid.html" %} {% endif %} {% if
+      item.Type == 'Season' and not children %} {% call ui.section_card("No
+      Episodes", body_class="ui-note-warning space-y-3") %}
+      <p class="text-sm leading-6">
+        No episodes were returned for this season.
+      </p>
+      {% endcall %} {% endif %}
     </div>
-</div>
-{% endblock %}
 
-{% block scripts %}
+    {% if show_sidebar_download %}
+    <aside class="xl:sticky xl:top-6">
+      {% include "items/_download_panel.html" %}
+    </aside>
+    {% endif %}
+  </div>
+</div>
+{% endblock %} {% block scripts %}
 <script src="/assets/items/page.js" defer></script>
 {% endblock %}

@@ -1,51 +1,38 @@
-{% extends "shared/base.html" %}
-{% import "shared/macros.html" as ui %}
-
-{% block title %}crunchy{% endblock %}
-
-{% block content %}
-{% set movies = library_items | selectattr('type', 'equalto', 'Movie') | list %}
-{% set series = library_items | selectattr('type', 'equalto', 'Series') | list %}
+{% extends "shared/base.html" %} {% import "shared/macros.html" as ui %} {%
+block title %}crunchy{% endblock %} {% block content %} {% set movies =
+library_items | selectattr('type', 'equalto', 'Movie') | list %} {% set series =
+library_items | selectattr('type', 'equalto', 'Series') | list %}
 
 <div class="space-y-6">
-    {{ ui.page_header("Library") }}
+  {{ ui.page_header("Library") }} {% call
+  ui.section_card(body_class="space-y-8") %} {% if library_items %}
+  <section class="space-y-4">
+    <div class="flex items-center justify-between">
+      <h3 class="text-lg font-semibold text-slate-900">Movies</h3>
+      <span class="text-sm text-slate-400">{{ movies|length }}</span>
+    </div>
+    {% if movies %}
+    <div
+      class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6"
+    >
+      {% for item in movies %} {{ ui.item_card(item) }} {% endfor %}
+    </div>
+    {% else %} {{ ui.empty_state("No movies found.") }} {% endif %}
+  </section>
 
-    {% call ui.section_card(body_class="space-y-8") %}
-        {% if library_items %}
-        <section class="space-y-4">
-            <div class="flex items-center justify-between">
-                <h3 class="text-lg font-semibold text-slate-900">Movies</h3>
-                <span class="text-sm text-slate-400">{{ movies|length }}</span>
-            </div>
-            {% if movies %}
-            <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
-                {% for item in movies %}
-                {{ ui.item_card(item) }}
-                {% endfor %}
-            </div>
-            {% else %}
-            {{ ui.empty_state("No movies found.") }}
-            {% endif %}
-        </section>
-
-        <section class="space-y-4">
-            <div class="flex items-center justify-between">
-                <h3 class="text-lg font-semibold text-slate-900">Series</h3>
-                <span class="text-sm text-slate-400">{{ series|length }}</span>
-            </div>
-            {% if series %}
-            <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
-                {% for item in series %}
-                {{ ui.item_card(item) }}
-                {% endfor %}
-            </div>
-            {% else %}
-            {{ ui.empty_state("No series found.") }}
-            {% endif %}
-        </section>
-        {% else %}
-        {{ ui.empty_state("No library items") }}
-        {% endif %}
-    {% endcall %}
+  <section class="space-y-4">
+    <div class="flex items-center justify-between">
+      <h3 class="text-lg font-semibold text-slate-900">Series</h3>
+      <span class="text-sm text-slate-400">{{ series|length }}</span>
+    </div>
+    {% if series %}
+    <div
+      class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6"
+    >
+      {% for item in series %} {{ ui.item_card(item) }} {% endfor %}
+    </div>
+    {% else %} {{ ui.empty_state("No series found.") }} {% endif %}
+  </section>
+  {% else %} {{ ui.empty_state("No library items") }} {% endif %} {% endcall %}
 </div>
 {% endblock %}

@@ -1,6 +1,15 @@
-const PRESET_NUMBER_FIELDS = new Set(["maxHeight", "videoBitrate", "audioBitrate"]);
+const PRESET_NUMBER_FIELDS = new Set([
+  "maxHeight",
+  "videoBitrate",
+  "audioBitrate",
+]);
 const PRESET_FIELDS = [
-  { name: "name", type: "text", placeholder: "Name", className: "md:col-span-3" },
+  {
+    name: "name",
+    type: "text",
+    placeholder: "Name",
+    className: "md:col-span-3",
+  },
   { name: "maxHeight", type: "number", placeholder: "Height" },
   { name: "videoBitrate", type: "number", placeholder: "Video bitrate" },
   { name: "audioBitrate", type: "number", placeholder: "Audio bitrate" },
@@ -71,7 +80,9 @@ function updateSecretPlaceholders() {
   const apiKeyHelp = document.getElementById("jellyfin-api-key-help");
   if (apiKeyInput) {
     apiKeyInput.placeholder =
-      storedApiKeyLength > 0 ? "\u2022".repeat(Math.min(storedApiKeyLength, 16)) : "";
+      storedApiKeyLength > 0
+        ? "\u2022".repeat(Math.min(storedApiKeyLength, 16))
+        : "";
   }
   if (apiKeyHelp) {
     apiKeyHelp.textContent =
@@ -138,7 +149,8 @@ function populateForm(settings) {
       return;
     }
 
-    input.value = key === "ffmpeg_flags" && Array.isArray(value) ? value.join(" ") : value;
+    input.value =
+      key === "ffmpeg_flags" && Array.isArray(value) ? value.join(" ") : value;
   });
 }
 
@@ -182,7 +194,8 @@ function getSettingsPayload(form) {
 function refreshStoredSecretState(savedSettings) {
   newPresetTemplate = savedSettings?.new_preset_template || newPresetTemplate;
   presets = savedSettings?.presets || presets;
-  storedApiKeyLength = Number(savedSettings?.jellyfin_api_key_length) || storedApiKeyLength;
+  storedApiKeyLength =
+    Number(savedSettings?.jellyfin_api_key_length) || storedApiKeyLength;
   storedAppPasswordLength =
     Number(savedSettings?.app_password_length) || storedAppPasswordLength;
 
@@ -254,8 +267,12 @@ function addPreset() {
   renderPresets();
 }
 
-document.getElementById("settings-form")?.addEventListener("submit", saveSettings);
-document.querySelector('[name="ffmpeg_flags"]')?.addEventListener("input", updatePreview);
+document
+  .getElementById("settings-form")
+  ?.addEventListener("submit", saveSettings);
+document
+  .querySelector('[name="ffmpeg_flags"]')
+  ?.addEventListener("input", updatePreview);
 
 document.addEventListener("click", (event) => {
   const deleteButton = event.target.closest("[data-delete-preset]");

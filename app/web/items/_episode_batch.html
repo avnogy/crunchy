@@ -1,96 +1,199 @@
-{% import "shared/macros.html" as ui %}
+{% import "shared/macros.html" as ui %} {% set default_preset =
+presets.keys()|list|first %} {% call ui.section_card("Episodes", actions='
+<div class="flex flex-wrap gap-2">
+  <button
+    type="button"
+    data-batch-action="all"
+    class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+  >
+    All</button
+  ><button
+    type="button"
+    data-batch-action="none"
+    class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+  >
+    None</button
+  ><button
+    type="button"
+    data-batch-action="invert"
+    class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+  >
+    Invert
+  </button>
+</div>
+') %}
+<form
+  id="batch-download-form"
+  data-ui="batch-download-form"
+  class="space-y-4 pb-32 sm:pb-28"
+>
+  <input
+    type="hidden"
+    name="preset"
+    id="batch-preset-mobile-proxy"
+    value="{{ presets.keys()|list|first }}"
+  />
 
-{% set default_preset = presets.keys()|list|first %}
-
-{% call ui.section_card("Episodes", actions='<div class="flex flex-wrap gap-2"><button type="button" data-batch-action="all" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">All</button><button type="button" data-batch-action="none" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">None</button><button type="button" data-batch-action="invert" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Invert</button></div>') %}
-<form id="batch-download-form" data-ui="batch-download-form" class="space-y-4 pb-32 sm:pb-28">
-    <input type="hidden" name="preset" id="batch-preset-mobile-proxy" value="{{ presets.keys()|list|first }}" />
-
-    <div class="space-y-2.5 sm:space-y-3">
-        {% for child in children %}
-        <article
-            class="episode-card relative overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 transition hover:border-slate-300 sm:p-4"
-            data-item-id="{{ child.id }}"
-            data-selected="false"
+  <div class="space-y-2.5 sm:space-y-3">
+    {% for child in children %}
+    <article
+      class="episode-card relative overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 transition hover:border-slate-300 sm:p-4"
+      data-item-id="{{ child.id }}"
+      data-selected="false"
+    >
+      <input
+        type="checkbox"
+        name="item_ids"
+        value="{{ child.id }}"
+        data-name="{{ child.name }}"
+        class="sr-only episode-checkbox"
+      />
+      <div class="space-y-3 lg:flex lg:items-start lg:gap-4 lg:space-y-0">
+        {% if child.image %}
+        <div
+          class="overflow-hidden rounded-lg border border-slate-200 lg:w-44 lg:shrink-0 xl:w-52"
         >
-            <input type="checkbox" name="item_ids" value="{{ child.id }}" data-name="{{ child.name }}" class="sr-only episode-checkbox" />
-            <div class="space-y-3 lg:flex lg:items-start lg:gap-4 lg:space-y-0">
-                {% if child.image %}
-                <div class="overflow-hidden rounded-lg border border-slate-200 lg:w-44 lg:shrink-0 xl:w-52">
-                    <img src="{{ child.image }}" alt="{{ child.name }}" class="aspect-video w-full select-none object-cover" loading="lazy" draggable="false" />
-                </div>
-                {% endif %}
-
-                <div class="min-w-0 flex-1 space-y-3">
-                    <div class="flex items-start gap-3">
-                        <span class="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 font-mono text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200">
-                        {{ child.episode_number or loop.index }}
-                        </span>
-                        <div class="min-w-0 flex-1 space-y-2">
-                            <div class="flex items-start justify-between gap-3">
-                                <div class="min-w-0 flex-1">
-                                    <h3 class="text-base font-semibold leading-snug text-slate-900 sm:text-lg">{{ child.name }}</h3>
-                                </div>
-                                <span class="episode-selection-indicator mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-transparent transition-colors">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                        <path fill-rule="evenodd" d="M16.704 5.29a1 1 0 010 1.414l-7.2 7.2a1 1 0 01-1.414 0l-3.2-3.2A1 1 0 016.304 9.29l2.493 2.493 6.493-6.493a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                    </svg>
-                                </span>
-                            </div>
-
-                            <div class="flex flex-wrap gap-2 text-xs sm:text-sm">
-                                {% if child.size_bytes %}
-                                <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">{{ (child.size_bytes / 1024 / 1024)|round|int }} MB</span>
-                                {% endif %}
-                                {% if child.runtime_seconds %}
-                                <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">{{ (child.runtime_seconds / 60)|int }} min</span>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-
-                    {% if child.audio_streams %}
-                    <div class="rounded-lg bg-slate-50 p-3">
-                        {% call ui.form_field("Audio", sr_only=False) %}
-                        <select
-                            name="audio_stream_index_{{ child.id }}"
-                            data-item-id="{{ child.id }}"
-                            class="episode-control w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
-                            aria-label="Audio stream for {{ child.name }}"
-                        >
-                            {% for a in child.audio_streams %}
-                            <option value="{{ a.index }}" {% if loop.first %}selected{% endif %}>{{ a.language|default('unknown') }} ({{ a.codec }})</option>
-                            {% endfor %}
-                        </select>
-                        {% endcall %}
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
-        </article>
-        {% endfor %}
-    </div>
-
-    <div id="episode-bulk-bar" class="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm sm:px-6">
-        <div class="mx-auto flex max-w-6xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div class="space-y-1">
-                <p class="text-sm font-semibold text-slate-900"><span id="selected-count">0</span> episode<span id="selected-count-suffix">s</span> selected</p>
-            </div>
-
-            <div class="flex flex-col gap-2 sm:flex-row sm:items-center lg:w-auto">
-                <label class="block sm:w-64">
-                    <span class="sr-only">Batch preset</span>
-                    <select id="batch-preset" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700">
-                        {% for key, preset in presets.items() %}
-                        <option value="{{ key }}" {% if key == default_preset %}selected{% endif %}>{{ preset.name }}</option>
-                        {% endfor %}
-                    </select>
-                </label>
-                <button type="submit" class="ui-button-primary inline-flex w-full items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition sm:w-auto">
-                    Download selected
-                </button>
-            </div>
+          <img
+            src="{{ child.image }}"
+            alt="{{ child.name }}"
+            class="aspect-video w-full select-none object-cover"
+            loading="lazy"
+            draggable="false"
+          />
         </div>
+        {% endif %}
+
+        <div class="min-w-0 flex-1 space-y-3">
+          <div class="flex items-start gap-3">
+            <span
+              class="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 font-mono text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200"
+            >
+              {{ child.episode_number or loop.index }}
+            </span>
+            <div class="min-w-0 flex-1 space-y-2">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0 flex-1">
+                  <h3
+                    class="text-base font-semibold leading-snug text-slate-900 sm:text-lg"
+                  >
+                    {{ child.name }}
+                  </h3>
+                </div>
+                <span
+                  class="episode-selection-indicator mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-transparent transition-colors"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-3.5 w-3.5"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fill-rule="evenodd"
+                      d="M16.704 5.29a1 1 0 010 1.414l-7.2 7.2a1 1 0 01-1.414 0l-3.2-3.2A1 1 0 016.304 9.29l2.493 2.493 6.493-6.493a1 1 0 011.414 0z"
+                      clip-rule="evenodd"
+                    />
+                  </svg>
+                </span>
+              </div>
+
+              <div class="flex flex-wrap gap-2 text-xs sm:text-sm">
+                {% if child.size_bytes %}
+                <span
+                  class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-slate-600"
+                  >{{ (child.size_bytes / 1024 / 1024)|round|int }} MB</span
+                >
+                {% endif %} {% if child.runtime_seconds %}
+                <span
+                  class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-slate-600"
+                  >{{ (child.runtime_seconds / 60)|int }} min</span
+                >
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          {% if child.audio_streams %}
+          <div class="rounded-lg bg-slate-50 p-3">
+            {% call ui.form_field("Audio", sr_only=False) %}
+            <select
+              name="audio_stream_index_{{ child.id }}"
+              data-item-id="{{ child.id }}"
+              class="episode-control w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+              aria-label="Audio stream for {{ child.name }}"
+            >
+              {% for a in child.audio_streams %}
+              <option
+                value="{{ a.index }}"
+                {%
+                if
+                loop.first
+                %}selected{%
+                endif
+                %}
+              >
+                {{ a.language|default('unknown') }} ({{ a.codec }})
+              </option>
+              {% endfor %}
+            </select>
+            {% endcall %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+
+  <div
+    id="episode-bulk-bar"
+    class="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm sm:px-6"
+  >
+    <div
+      class="mx-auto flex max-w-6xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"
+    >
+      <div class="space-y-1">
+        <p class="text-sm font-semibold text-slate-900">
+          <span id="selected-count">0</span> episode<span
+            id="selected-count-suffix"
+            >s</span
+          >
+          selected
+        </p>
+      </div>
+
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center lg:w-auto">
+        <label class="block sm:w-64">
+          <span class="sr-only">Batch preset</span>
+          <select
+            id="batch-preset"
+            class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+          >
+            {% for key, preset in presets.items() %}
+            <option
+              value="{{ key }}"
+              {%
+              if
+              key=""
+              ="default_preset"
+              %}selected{%
+              endif
+              %}
+            >
+              {{ preset.name }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <button
+          type="submit"
+          class="ui-button-primary inline-flex w-full items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition sm:w-auto"
+        >
+          Download selected
+        </button>
+      </div>
     </div>
+  </div>
 </form>
 {% endcall %}
