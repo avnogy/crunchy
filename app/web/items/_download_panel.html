@@ -30,6 +30,22 @@ body_class="space-y-4") %}
     </option>
     {% endfor %}
   </select>
+  {% endcall %} {% endif %} {% if item.subtitle_streams and item.subtitle_streams|length > 1 %} {% call
+  ui.form_field("Captions") %}
+  <select
+    name="subtitle_stream_index"
+    class="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700"
+  >
+    {% set preferred_subtitle = item.subtitle_streams|selectattr("is_default")|list|first %}
+    {% if not preferred_subtitle %}
+    <option value="" selected>Jellyfin default track</option>
+    {% endif %}
+    {% for s in item.subtitle_streams %}
+    <option value="{{ s.index }}" {% if preferred_subtitle and s.index == preferred_subtitle.index %}selected{% endif %}>
+      {{ s.title or s.language or 'unknown' }}{% if s.codec %} ({{ s.codec }}){% endif %}{% if s.is_default %} [default]{% endif %}
+    </option>
+    {% endfor %}
+  </select>
   {% endcall %} {% endif %}
 
   <button

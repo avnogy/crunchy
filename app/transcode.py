@@ -72,6 +72,8 @@ def _build_transcode_url(settings: Settings, job: Job, source_id: str) -> str:
 
     if job.audio_stream_index is not None:
         params["audioStreamIndex"] = str(job.audio_stream_index)
+    if job.subtitle_stream_index is not None:
+        params["subtitleStreamIndex"] = str(job.subtitle_stream_index)
 
     return f"{url}?{urlencode(params)}"
 

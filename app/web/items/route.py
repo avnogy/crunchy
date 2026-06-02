@@ -41,10 +41,46 @@ def _extract_audio_streams(media_sources: list[dict]) -> list[dict] | None:
     return audio or None
 
 
+def _extract_subtitle_streams(media_sources: list[dict]) -> list[dict] | None:
+    if not media_sources:
+        return None
+    streams = media_sources[0].get("MediaStreams", [])
+    subtitles = []
+
+    for stream in streams:
+        if stream.get("Type") != "Subtitle":
+            continue
+
+        index = stream.get("Index")
+        if not isinstance(index, int):
+            continue
+
+        title = stream.get("DisplayTitle") or stream.get("Title") or ""
+        language = (stream.get("Language") or "").lower()
+        codec = stream.get("Codec") or ""
+        subtitles.append(
+            {
+                "index": index,
+                "language": language,
+                "codec": codec,
+                "title": title,
+                "is_default": bool(stream.get("IsDefault")),
+            }
+        )
+
+    return subtitles or None
+
+
 def _apply_audio_streams(item: dict[str, Any], media_sources: list[dict]) -> None:
     audio_streams = _extract_audio_streams(media_sources)
     if audio_streams:
         item["audio_streams"] = audio_streams
+
+
+def _apply_subtitle_streams(item: dict[str, Any], media_sources: list[dict]) -> None:
+    subtitle_streams = _extract_subtitle_streams(media_sources)
+    if subtitle_streams:
+        item["subtitle_streams"] = subtitle_streams
 
 
 def normalize_item(
@@ -76,6 +112,7 @@ def normalize_item(
     if media_sources:
         result["size_bytes"] = int(media_sources[0].get("Size", 0))
         _apply_audio_streams(result, media_sources)
+        _apply_subtitle_streams(result, media_sources)
     return result
 
 
@@ -123,6 +160,7 @@ async def item_detail(request: Request, item_id: str):
     media_sources = item.get("MediaSources", [])
     if media_sources:
         _apply_audio_streams(item, media_sources)
+        _apply_subtitle_streams(item, media_sources)
 
     return templates.TemplateResponse(
         request,

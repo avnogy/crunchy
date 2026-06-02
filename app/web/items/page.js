@@ -75,7 +75,7 @@ function setCheckedState(checkbox, checked) {
   syncEpisodeCardState(checkbox);
 }
 
-function getAudioStreamIndex(select) {
+function getStreamIndex(select) {
   if (!select || select.value === "") {
     return null;
   }
@@ -91,11 +91,12 @@ async function submitSingleDownload(form) {
       item_id: form.item_id.value,
       item_name: form.item_name.value,
       preset: form.preset.value,
-      audio_stream_index: getAudioStreamIndex(form.audio_stream_index),
+      audio_stream_index: getStreamIndex(form.audio_stream_index),
+      subtitle_stream_index: getStreamIndex(form.subtitle_stream_index),
     });
 
     if (ok) {
-      toast.success(result?.deduped ? "Job already exists!" : "Job created!");
+      toast.success("Job created!");
       return;
     }
 
@@ -119,27 +120,26 @@ async function submitBatchDownload(form) {
 
   await window.ui.withBusyState(submitButton, "Queueing...", async () => {
     let created = 0;
-    let deduped = 0;
     const errors = [];
 
     for (const checkbox of checked) {
       try {
         const audioSelect = document.querySelector(
-          `select[data-item-id="${CSS.escape(checkbox.value)}"]`,
+          `select[data-item-id="${CSS.escape(checkbox.value)}"][data-stream-kind="audio"]`,
+        );
+        const subtitleSelect = document.querySelector(
+          `select[data-item-id="${CSS.escape(checkbox.value)}"][data-stream-kind="subtitle"]`,
         );
         const { ok, result } = await createJob({
           item_id: checkbox.value,
           item_name: checkbox.dataset.name,
           preset,
-          audio_stream_index: getAudioStreamIndex(audioSelect),
+          audio_stream_index: getStreamIndex(audioSelect),
+          subtitle_stream_index: getStreamIndex(subtitleSelect),
         });
 
         if (ok) {
-          if (result?.deduped) {
-            deduped += 1;
-          } else {
-            created += 1;
-          }
+          created += 1;
         } else {
           errors.push(result?.detail || "Unknown error");
         }
@@ -148,15 +148,8 @@ async function submitBatchDownload(form) {
       }
     }
 
-    if (created > 0 || deduped > 0) {
-      const parts = [];
-      if (created > 0) {
-        parts.push(`Created ${created} job(s)`);
-      }
-      if (deduped > 0) {
-        parts.push(`reused ${deduped} existing job(s)`);
-      }
-      toast.success(parts.join(", "));
+    if (created > 0) {
+      toast.success(`Created ${created} job(s)`);
       return;
     }
 

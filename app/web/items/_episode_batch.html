@@ -115,6 +115,7 @@ presets.keys()|list|first %} {% call ui.section_card("Episodes", actions='
             <select
               name="audio_stream_index_{{ child.id }}"
               data-item-id="{{ child.id }}"
+              data-stream-kind="audio"
               class="episode-control w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
               aria-label="Audio stream for {{ child.name }}"
             >
@@ -125,6 +126,30 @@ presets.keys()|list|first %} {% call ui.section_card("Episodes", actions='
               {% for a in child.audio_streams %}
               <option value="{{ a.index }}" {% if preferred_audio and a.index == preferred_audio.index %}selected{% endif %}>
                 {{ a.title or a.language or 'unknown' }}{% if a.codec %} ({{ a.codec }}){% endif %}{% if a.is_default %} [default]{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+            {% endcall %}
+          </div>
+          {% endif %}
+
+          {% if child.subtitle_streams and child.subtitle_streams|length > 1 %}
+          <div class="rounded-lg bg-slate-50 p-3">
+            {% call ui.form_field("Captions", sr_only=False) %}
+            <select
+              name="subtitle_stream_index_{{ child.id }}"
+              data-item-id="{{ child.id }}"
+              data-stream-kind="subtitle"
+              class="episode-control w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+              aria-label="Caption stream for {{ child.name }}"
+            >
+              {% set preferred_subtitle = child.subtitle_streams|selectattr("is_default")|list|first %}
+              {% if not preferred_subtitle %}
+              <option value="" selected>Jellyfin default track</option>
+              {% endif %}
+              {% for s in child.subtitle_streams %}
+              <option value="{{ s.index }}" {% if preferred_subtitle and s.index == preferred_subtitle.index %}selected{% endif %}>
+                {{ s.title or s.language or 'unknown' }}{% if s.codec %} ({{ s.codec }}){% endif %}{% if s.is_default %} [default]{% endif %}
               </option>
               {% endfor %}
             </select>
