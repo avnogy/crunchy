@@ -113,6 +113,7 @@ function renderJobCard(job) {
   const expanded = expandedJobs.has(job.id);
   const safeJobId = window.ui.escapeHtml(job.id);
   const safeItemName = window.ui.escapeHtml(job.item_name);
+  const itemPageId = encodeURIComponent(job.item_id);
   const safePresetName = window.ui.escapeHtml(
     job.preset?.name || job.preset || "",
   );
@@ -167,7 +168,7 @@ function renderJobCard(job) {
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-3">
-              <strong class="text-slate-900">${safeItemName}</strong>
+              <a href="/items/${itemPageId}" class="font-semibold text-slate-900 transition hover:text-slate-700 hover:underline">${safeItemName}</a>
               <span class="rounded-full px-3 py-1 text-sm font-medium ${getStateClasses(job.state)}">${safeState}</span>
               <span class="text-sm text-slate-500">${safePresetName}</span>
               ${progressSummary}
