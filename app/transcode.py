@@ -20,8 +20,42 @@ def _safe_output_name(name: str) -> str:
     return sanitized or "job"
 
 
-def build_output_path(job: Job) -> Path:
-    return OUTPUT_DIR / f"{job.id}_{_safe_output_name(job.item_name)}.mp4"
+def _format_bitrate(preset: Preset) -> str:
+    return f"{int(preset.videoBitrate / 1000)}kbps"
+
+
+def _format_quality(preset: Preset) -> str:
+    return f"{preset.maxHeight}p"
+
+
+def _episode_code(item: dict) -> str:
+    season = item.get("ParentIndexNumber")
+    episode = item.get("IndexNumber")
+    if isinstance(season, int) and isinstance(episode, int):
+        return f"S{season:02d}E{episode:02d}"
+    if isinstance(episode, int):
+        return f"E{episode:02d}"
+    return "Episode"
+
+
+def _build_output_stem(job: Job, item: dict) -> str:
+    preset = Preset(**job.preset)
+    quality = _format_quality(preset)
+    bitrate = _format_bitrate(preset)
+    item_type = item.get("Type")
+
+    if item_type == "Episode":
+        episode_code = _episode_code(item)
+        episode_name = item.get("Name") or job.item_name
+        return _safe_output_name(f"{episode_code} {episode_name} {quality} {bitrate}")
+
+    title = item.get("Name") or job.item_name
+    return _safe_output_name(f"{title} {quality} {bitrate}")
+
+
+def build_output_path(job: Job, item: dict) -> Path:
+    stem = _build_output_stem(job, item)
+    return OUTPUT_DIR / f"{stem} {job.id}.mp4"
 
 
 def get_ffmpeg_command(
@@ -102,10 +136,15 @@ async def enqueue_job(job: Job, settings: Settings, store: JobStore) -> Job:
                 run_time_ticks,
             )
 
-        input_url = _build_transcode_url(settings, job, source_id)
-    output_path = build_output_path(job)
+    input_url = _build_transcode_url(settings, job, source_id)
     job.input_url = input_url
 
-    await store.add(job)
+    updated_job = await store.update(
+        job.id,
+        input_url=input_url,
+        progress=job.progress,
+    )
+    if updated_job is not None:
+        job = updated_job
     logger.info("Job %s enqueued successfully to Redis", job.id)
     return job

@@ -82,18 +82,22 @@ function renderActions(job) {
   const renderLogLink = () =>
     `<a href="/api/jobs/${jobId}/log" target="_blank" rel="noopener" class="ui-button-secondary inline-flex h-10 w-10 items-center justify-center rounded-lg border transition" title="View log" aria-label="View log">${renderIcon("file-text")}</a>`;
   const cancelButton = `<button type="button" data-cancel-job="${window.ui.escapeHtml(job.id)}" class="ui-button-danger ml-auto inline-flex h-10 w-10 items-center justify-center rounded-lg border transition" title="Cancel job" aria-label="Cancel job">${renderIcon("x")}</button>`;
+  const deleteButton = `<button type="button" data-delete-job="${window.ui.escapeHtml(job.id)}" class="ui-button-danger ml-auto inline-flex h-10 w-10 items-center justify-center rounded-lg border transition" title="Delete job" aria-label="Delete job">${renderIcon("trash-2")}</button>`;
 
   if (job.state === "completed") {
-    return `${downloadButton}${job.log_path ? renderLogLink() : ""}`;
+    return `${downloadButton}${job.log_path ? renderLogLink() : ""}${deleteButton}`;
   }
-  if (job.state === "queued" || job.state === "running") {
+  if (job.state === "running") {
+    return `${downloadButton}${job.log_path ? renderLogLink() : ""}${cancelButton}`;
+  }
+  if (job.state === "queued") {
     return `${downloadButton}${job.log_path ? renderLogLink() : ""}${cancelButton}`;
   }
   if (job.log_path) {
-    return `${downloadButton}${renderLogLink()}`;
+    return `${downloadButton}${renderLogLink()}${deleteButton}`;
   }
 
-  return downloadButton;
+  return `${downloadButton}${deleteButton}`;
 }
 
 function renderMetaRow(label, value, extraClass = "") {
@@ -157,7 +161,6 @@ function renderJobCard(job) {
   if (job.error_message) {
     details.push(renderMetaRow("Error", safeErrorMessage, "md:col-span-2"));
   }
-
   return `
     <article class="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
       <div class="bg-white px-5 py-4">
@@ -207,6 +210,20 @@ async function cancelJob(jobId) {
   }
 }
 
+async function deleteJob(jobId) {
+  if (!window.confirm("Delete this job and all related files?")) {
+    return;
+  }
+
+  try {
+    await window.ui.request(`/api/jobs/${jobId}`, { method: "DELETE" });
+    expandedJobs.delete(jobId);
+    await loadJobs();
+  } catch (error) {
+    toast.error(error?.message || "Failed to delete");
+  }
+}
+
 async function loadJobs() {
   if (!jobsContainer) {
     return;
@@ -248,6 +265,12 @@ document.addEventListener("click", (event) => {
   const cancelButton = event.target.closest("[data-cancel-job]");
   if (cancelButton) {
     cancelJob(cancelButton.dataset.cancelJob);
+    return;
+  }
+
+  const deleteButton = event.target.closest("[data-delete-job]");
+  if (deleteButton) {
+    deleteJob(deleteButton.dataset.deleteJob);
   }
 });
 

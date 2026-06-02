@@ -1,4 +1,5 @@
-import json
+from __future__ import annotations
+
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -58,12 +59,9 @@ class Job(BaseModel):
     error_message: Optional[str] = None
     speed: str = ""
     audio_stream_index: int | None = None
+    subtitle_stream_index: int | None = None
     progress: Progress = Field(default_factory=Progress)
     cancel_requested: bool = False
-
-    @property
-    def preset_signature(self) -> str:
-        return json.dumps(self.preset, sort_keys=True, separators=(",", ":"))
 
     @computed_field
     @property
@@ -73,18 +71,19 @@ class Job(BaseModel):
     def is_download_available(self) -> bool:
         return bool(self.output_path and Path(self.output_path).exists())
 
-
 def new_job(
     item_id: str,
     item_name: str,
     preset: dict[str, Any],
     audio_stream_index: int | None = None,
+    subtitle_stream_index: int | None = None,
 ) -> Job:
     return Job(
         item_id=item_id,
         item_name=item_name,
         preset=preset,
         audio_stream_index=audio_stream_index,
+        subtitle_stream_index=subtitle_stream_index,
     )
 
 
@@ -92,12 +91,10 @@ class JobStore:
     def __init__(self, client: redis.asyncio.Redis) -> None:
         self.client = client
 
-    async def add(self, job: Job) -> Job:
+    async def add_pending(self, job: Job) -> Job:
         pipe = self.client.pipeline()
-        serialized = job.model_dump_json(exclude_computed_fields=True)
-        pipe.set(f"job:{job.id}", serialized)
+        pipe.set(f"job:{job.id}", job.model_dump_json(exclude_computed_fields=True))
         pipe.lpush(JOB_IDS_KEY, job.id)
-        pipe.rpush(JOB_QUEUE_KEY, serialized)
         await pipe.execute()
         return job
 
@@ -112,26 +109,6 @@ class JobStore:
         keys = [f"job:{jid}" for jid in job_ids]
         values = await self.client.mget(keys)
         return [Job.model_validate_json(v) for v in values if v]
-
-    async def find_reusable_by_item_and_preset(
-        self,
-        item_id: str,
-        preset: dict[str, Any],
-        audio_stream_index: int | None = None,
-    ) -> Job | None:
-        signature = json.dumps(preset, sort_keys=True, separators=(",", ":"))
-        for job in await self.list():
-            if job.item_id != item_id:
-                continue
-            if job.preset_signature != signature:
-                continue
-            if job.audio_stream_index != audio_stream_index:
-                continue
-            if job.state in (JobState.QUEUED, JobState.RUNNING):
-                return job
-            if job.state == JobState.COMPLETED and job.is_download_available():
-                return job
-        return None
 
     async def update(self, job_id: str, **changes: Any) -> Job | None:
         key = f"job:{job_id}"
@@ -148,3 +125,20 @@ class JobStore:
         )
 
         return updated
+
+    async def enqueue_existing(self, job: Job) -> None:
+        await self.client.rpush(JOB_QUEUE_KEY, job.id)
+
+    async def delete(self, job_id: str) -> Job | None:
+        key = f"job:{job_id}"
+        data = await self.client.get(key)
+        if not data:
+            return None
+
+        job = Job.model_validate_json(data)
+
+        pipe = self.client.pipeline()
+        pipe.delete(key)
+        pipe.lrem(JOB_IDS_KEY, 0, job_id)
+        await pipe.execute()
+        return job

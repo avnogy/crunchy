@@ -9,6 +9,7 @@ from pathlib import Path
 import redis.asyncio
 
 from app.config import Settings, load_settings
+from app.jellyfin import JellyfinClient
 from app.jobs import (
     JOB_QUEUE_KEY,
     Job,
@@ -128,11 +129,7 @@ async def _read_ffmpeg_streams(
             await process.wait()
         progress_file.unlink(missing_ok=True)
         temp_output_path.unlink(missing_ok=True)
-        await store.update(
-            job_id,
-            state=JobState.CANCELLED,
-            finished_at=utcnow_iso(),
-        )
+        await _mark_cancelled(store, job_id, temp_output_path)
 
     return_code = process.returncode or 0
     return return_code
@@ -158,23 +155,31 @@ async def _mark_cancelled(store: JobStore, job_id: str, temp_output_path: Path) 
 
 async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
     job_id = job.id
-    output_path = build_output_path(job)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    existing = await store.find_reusable_by_item_and_preset(job.item_id, job.preset, audio_stream_index=job.audio_stream_index)
-    if (
-        existing
-        and existing.state == JobState.COMPLETED
-        and existing.is_download_available()
-    ):
-        logger.info("Reusing completed job %s for item %s", existing.id, job.item_name)
-        await store.update(
+    client = JellyfinClient(settings)
+    current_job = await store.get(job_id)
+    if not current_job:
+        logger.info("Skipping deleted job %s before worker startup", job_id)
+        return
+    if current_job.state != JobState.QUEUED:
+        logger.info(
+            "Skipping queued entry for job %s in state %s",
             job_id,
-            state=JobState.COMPLETED,
-            output_path=existing.output_path,
-            finished_at=existing.finished_at,
+            current_job.state.value,
         )
         return
+    job = current_job
+
+    try:
+        item = await client.get_item(job.item_id)
+    except Exception as exc:
+        logger.warning(
+            "Falling back to job metadata for %s after item lookup failed: %s",
+            job_id,
+            exc,
+        )
+        item = {}
+    output_path = build_output_path(job, item)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     log_path = TRANSCODING_TEMP_DIR / f"{job_id}.log"
     TRANSCODING_TEMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -186,9 +191,8 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         return
     logger.info("Running job %s -> %s (temp)", job_id, temp_output_path)
 
-    current_job = await store.get(job_id)
     existing_progress = current_job.progress if current_job else Progress()
-    await store.update(
+    updated_job = await store.update(
         job_id,
         state=JobState.RUNNING,
         started_at=utcnow_iso(),
@@ -199,6 +203,9 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         speed="",
         progress=existing_progress,
     )
+    if not updated_job:
+        logger.info("Skipping deleted job %s before ffmpeg launch", job_id)
+        return
 
     progress_file = TRANSCODING_TEMP_DIR / f"{job_id}.progress"
     env = os.environ.copy()
@@ -249,9 +256,7 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
             )
         except Exception as e:
             logger.exception("Failed to set COMPLETED state for %s: %s", job_id, e)
-            await _mark_failed(
-                store, job_id, f"Completed file present but DB update failed: {e}"
-            )
+            await _mark_failed(store, job_id, f"Completed file present but DB update failed: {e}")
             return
         logger.info("Completed job %s", job_id)
         return
@@ -308,9 +313,19 @@ async def main() -> None:
                     result = await client.blpop(JOB_QUEUE_KEY, timeout=0)
                     if result is None:
                         continue
-                    _, payload = result
+                    _, queued_value = result
                     settings = _load_worker_settings(settings)
-                    job = Job.model_validate_json(payload)
+                    if queued_value.startswith("{"):
+                        stale_job = Job.model_validate_json(queued_value)
+                        logger.info(
+                            "Processing legacy serialized queue entry for job %s",
+                            stale_job.id,
+                        )
+                        queued_value = stale_job.id
+                    job = await store.get(queued_value)
+                    if job is None:
+                        logger.info("Skipping deleted queued job %s", queued_value)
+                        continue
                     await _run_job(store, settings, job)
                 except redis.asyncio.ConnectionError:
                     logger.warning("Lost connection to Redis, reconnecting...")
