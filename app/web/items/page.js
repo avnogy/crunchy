@@ -27,8 +27,23 @@ async function createJob(payload) {
   }
 }
 
-function getEpisodeCheckboxes() {
-  return window.ui.queryAll('input[name="item_ids"]');
+function getEpisodeCheckboxes(root = document) {
+  return window.ui.queryAll('input[name="item_ids"]', root);
+}
+
+function isVisibleElement(element) {
+  return Boolean(
+    element &&
+      (element.offsetParent ||
+        element.getClientRects().length > 0 ||
+        getComputedStyle(element).position === "fixed"),
+  );
+}
+
+function getVisibleEpisodeCheckboxes(root = document) {
+  return getEpisodeCheckboxes(root).filter((checkbox) =>
+    isVisibleElement(checkbox.closest(".episode-card")),
+  );
 }
 
 function syncEpisodeCardState(checkbox) {
@@ -56,7 +71,7 @@ function syncEpisodeCardState(checkbox) {
 }
 
 function updateSelectionSummary() {
-  const selectedCount = getEpisodeCheckboxes().filter(
+  const selectedCount = getVisibleEpisodeCheckboxes().filter(
     (checkbox) => checkbox.checked,
   ).length;
   const countEl = document.getElementById("selected-count");
@@ -105,7 +120,10 @@ async function submitSingleDownload(form) {
 }
 
 async function submitBatchDownload(form) {
-  const checked = getEpisodeCheckboxes().filter((checkbox) => checkbox.checked);
+  const checked = getVisibleEpisodeCheckboxes(form).filter(
+    (checkbox) => checkbox.checked,
+  );
+
   if (checked.length === 0) {
     toast.error("Select at least one episode");
     return;
@@ -124,10 +142,10 @@ async function submitBatchDownload(form) {
 
     for (const checkbox of checked) {
       try {
-        const audioSelect = document.querySelector(
+        const audioSelect = form.querySelector(
           `select[data-item-id="${CSS.escape(checkbox.value)}"][data-stream-kind="audio"]`,
         );
-        const subtitleSelect = document.querySelector(
+        const subtitleSelect = form.querySelector(
           `select[data-item-id="${CSS.escape(checkbox.value)}"][data-stream-kind="subtitle"]`,
         );
         const { ok, result } = await createJob({
@@ -158,7 +176,7 @@ async function submitBatchDownload(form) {
 }
 
 function applyBatchAction(action) {
-  getEpisodeCheckboxes().forEach((checkbox) => {
+  getVisibleEpisodeCheckboxes().forEach((checkbox) => {
     if (action === "all") {
       setCheckedState(checkbox, true);
     } else if (action === "none") {
