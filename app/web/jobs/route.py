@@ -9,7 +9,15 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.api_models import CreateJobPayload
-from app.jobs import Job, JobState, JobStore, new_job, utcnow_iso, get_redis_client
+from app.jobs import (
+    DuplicateJobError,
+    Job,
+    JobState,
+    JobStore,
+    get_redis_client,
+    new_job,
+    utcnow_iso,
+)
 from app.paths import MANAGED_DIRECTORIES, TRANSCODING_TEMP_DIR
 from app.transcode import enqueue_job
 
@@ -51,6 +59,7 @@ async def create_job(request: Request, data: CreateJobPayload):
         job = new_job(
             item_id=item_id,
             item_name=item_name,
+            preset_key=preset_key,
             preset=preset,
             audio_stream_index=data.audio_stream_index,
             subtitle_stream_index=data.subtitle_stream_index,
@@ -58,16 +67,27 @@ async def create_job(request: Request, data: CreateJobPayload):
         await store.add_pending(job)
         job = await enqueue_job(job, settings, store)
         await store.enqueue_existing(job)
+    except DuplicateJobError as exc:
+        logger.info(
+            "Rejected duplicate job %s for item_id=%s preset=%s",
+            exc.job.id,
+            item_id,
+            preset_key,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail="Duplicate job already exists",
+        ) from exc
     except redis.asyncio.RedisError as exc:
         if job is not None:
             with suppress(Exception):
-                await get_store(settings).delete(job.id)
+                await get_store(settings).delete_if_unchanged(job)
         logger.exception("Redis failure while creating job for item_id=%s", item_id)
         raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
     except Exception as exc:
         if job is not None:
             with suppress(Exception):
-                await get_store(settings).delete(job.id)
+                await get_store(settings).delete_if_unchanged(job)
         logger.exception("Failed to create job for item_id=%s", item_id)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     logger.info(
