@@ -18,6 +18,8 @@ FFMPEG_RESERVED_FLAGS = {
     "-c",
     "-c:v",
     "-c:a",
+    "-c:s",
+    "-map",
     "-b:v",
     "-b:a",
     "-vf",

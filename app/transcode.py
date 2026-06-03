@@ -69,8 +69,18 @@ def get_ffmpeg_command(
         "-y",
         "-i",
         input_url,
-        "-c",
+        "-map",
+        "0:v:0?",
+        "-map",
+        "0:a:0?",
+        "-map",
+        "0:s?",
+        "-c:v",
         "copy",
+        "-c:a",
+        "copy",
+        "-c:s",
+        "mov_text",
         "-movflags",
         "+faststart",
         "-loglevel",
@@ -108,6 +118,9 @@ def _build_transcode_url(settings: Settings, job: Job, source_id: str) -> str:
         params["audioStreamIndex"] = str(job.audio_stream_index)
     if job.subtitle_stream_index is not None:
         params["subtitleStreamIndex"] = str(job.subtitle_stream_index)
+        params["subtitleMethod"] = "Hls"
+        params["alwaysBurnInSubtitleWhenTranscoding"] = "true"
+        params["transcodeReasons"] = "ContainerNotSupported,SubtitleCodecNotSupported"
 
     return f"{url}?{urlencode(params)}"
 
