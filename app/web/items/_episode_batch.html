@@ -133,7 +133,7 @@ presets.keys()|list|first %} {% call ui.section_card("Episodes", actions='
           </div>
           {% endif %}
 
-          {% if child.subtitle_streams and child.subtitle_streams|length > 1 %}
+          {% if child.subtitle_streams %}
           <div class="rounded-lg bg-slate-50 p-3">
             {% call ui.form_field("Captions", sr_only=False) %}
             <select
@@ -144,11 +144,9 @@ presets.keys()|list|first %} {% call ui.section_card("Episodes", actions='
               aria-label="Caption stream for {{ child.name }}"
             >
               {% set preferred_subtitle = child.subtitle_streams|selectattr("is_default")|list|first %}
-              {% if not preferred_subtitle %}
-              <option value="" selected>Jellyfin default track</option>
-              {% endif %}
+              <option value="">None</option>
               {% for s in child.subtitle_streams %}
-              <option value="{{ s.index }}" {% if preferred_subtitle and s.index == preferred_subtitle.index %}selected{% endif %}>
+              <option value="{{ s.index }}" {% if (preferred_subtitle and s.index == preferred_subtitle.index) or (not preferred_subtitle and loop.first) %}selected{% endif %}>
                 {{ s.title or s.language or 'unknown' }}{% if s.codec %} ({{ s.codec }}){% endif %}{% if s.is_default %} [default]{% endif %}
               </option>
               {% endfor %}
