@@ -9,7 +9,7 @@ import redis.asyncio
 
 from app.config import Settings, load_settings
 from app.jellyfin import JellyfinClient
-from app.logging import redact_secrets, setup_logging
+from app.logging import LOG_FORMAT, RedactingFormatter, setup_logging
 from app.jobs import (
     JOB_QUEUE_KEY,
     Job,
@@ -27,26 +27,20 @@ logger = logging.getLogger(__name__)
 CANCEL_CHECK_INTERVAL = 2.0
 
 
-async def _write_redacted_ffmpeg_log(
-    stderr: asyncio.StreamReader | None,
-    log_path: Path,
-    secrets: list[str],
-    start_message: str,
-) -> None:
-    if stderr is None:
-        return
+def _create_job_logger(job_id: str, log_path: Path, level: str, secrets: list[str]) -> logging.Logger:
+    resolved_level = getattr(logging, level.upper(), logging.INFO)
+    job_logger = logging.getLogger(f"{__name__}.job.{job_id}")
+    job_logger.setLevel(resolved_level)
+    job_logger.propagate = False
+    for handler in job_logger.handlers:
+        handler.close()
+    job_logger.handlers.clear()
 
-    try:
-        with log_path.open("w", encoding="utf-8") as log_file:
-            log_file.write(f"{start_message}\n\n")
-            async for raw_line in stderr:
-                log_file.write(redact_secrets(raw_line.decode("utf-8", errors="replace"), secrets))
-    except Exception:
-        # Continue draining stderr so a full pipe cannot block ffmpeg before the
-        # caller records this log-capture failure on the job.
-        async for _ in stderr:
-            pass
-        raise
+    handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    handler.setLevel(resolved_level)
+    handler.setFormatter(RedactingFormatter(LOG_FORMAT, secrets=secrets))
+    job_logger.addHandler(handler)
+    return job_logger
 
 
 def _terminate_process(process: asyncio.subprocess.Process) -> None:
@@ -210,6 +204,12 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
     log_path = TRANSCODING_TEMP_DIR / f"{job_id}.log"
     TRANSCODING_TEMP_DIR.mkdir(parents=True, exist_ok=True)
     temp_output_path = TRANSCODING_TEMP_DIR / f"{job_id}{output_path.suffix}"
+    job_logger = _create_job_logger(
+        job_id,
+        log_path,
+        settings.log_level,
+        [settings.jellyfin_api_key, settings.app_password],
+    )
 
     if job.state == JobState.CANCELLED or job.cancel_requested:
         logger.info("Skipping cancelled queued job %s", job_id)
@@ -243,6 +243,7 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         )
     except ValueError as exc:
         error_message = f"Invalid ffmpeg flag configuration: {exc}"
+        job_logger.error("FFmpeg failed: %s", error_message)
         logger.error("Job %s failed: %s", job_id, error_message)
         await _mark_failed(store, job_id, error_message)
         return
@@ -254,34 +255,41 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError as e:
-        logger.error("ffmpeg not found: %s", e)
-        await _mark_failed(store, job_id, f"ffmpeg not found: {e}")
+        error_message = f"ffmpeg not found: {e}"
+        job_logger.error("FFmpeg failed: %s", error_message)
+        logger.error("%s", error_message)
+        await _mark_failed(store, job_id, error_message)
         return
     except OSError as e:
-        logger.error("Failed to start ffmpeg: %s", e)
-        await _mark_failed(store, job_id, f"Failed to start ffmpeg: {e}")
+        error_message = f"Failed to start ffmpeg: {e}"
+        job_logger.error("FFmpeg failed: %s", error_message)
+        logger.error("%s", error_message)
+        await _mark_failed(store, job_id, error_message)
         return
 
-    log_task = asyncio.create_task(
-        _write_redacted_ffmpeg_log(
-            process.stderr,
-            log_path,
-            [settings.jellyfin_api_key],
-            f"FFmpeg started at {utcnow_iso()} for job {job_id}: {job.item_name}",
-        )
-    )
+    job_logger.info("FFmpeg started for job %s: %s", job_id, job.item_name)
+
+    async def log_ffmpeg_stderr() -> None:
+        if process.stderr is None:
+            return
+        async for raw_line in process.stderr:
+            job_logger.warning("%s", raw_line.decode("utf-8", errors="replace").rstrip("\r\n"))
+
+    log_task = asyncio.create_task(log_ffmpeg_stderr())
     return_code = await _read_ffmpeg_streams(store, job_id, process, progress_file, temp_output_path)
     try:
         await log_task
     except Exception as exc:
         temp_output_path.unlink(missing_ok=True)
-        error_message = f"Failed to write redacted ffmpeg log: {exc}"
+        error_message = f"Failed to capture FFmpeg log: {exc}"
+        job_logger.error("FFmpeg failed: %s", error_message)
         logger.exception("Job %s failed: %s", job_id, error_message)
         await _mark_failed(store, job_id, error_message)
         return
 
     current_job = await store.get(job_id)
     if current_job and current_job.cancel_requested:
+        job_logger.info("FFmpeg cancelled")
         await _mark_cancelled(store, job_id, temp_output_path)
         return
 
@@ -299,14 +307,18 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
                 output_path=str(output_path),
             )
         except Exception as e:
+            error_message = f"Completed file present but DB update failed: {e}"
+            job_logger.error("FFmpeg failed: %s", error_message)
             logger.exception("Failed to set COMPLETED state for %s: %s", job_id, e)
-            await _mark_failed(store, job_id, f"Completed file present but DB update failed: {e}")
+            await _mark_failed(store, job_id, error_message)
             return
+        job_logger.info("FFmpeg finished successfully")
         logger.info("Completed job %s", job_id)
         return
 
     temp_output_path.unlink(missing_ok=True)
     error_message = f"ffmpeg exited with code {return_code}"
+    job_logger.error("FFmpeg failed: %s", error_message)
     await _mark_failed(store, job_id, error_message)
     logger.error("Job %s failed: %s", job_id, error_message)
 
