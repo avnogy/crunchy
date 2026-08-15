@@ -3,13 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
-import os
 from pathlib import Path
 
 import redis.asyncio
 
 from app.config import Settings, load_settings
 from app.jellyfin import JellyfinClient
+from app.logging import redact_secrets, setup_logging
 from app.jobs import (
     JOB_QUEUE_KEY,
     Job,
@@ -27,6 +27,22 @@ logger = logging.getLogger(__name__)
 CANCEL_CHECK_INTERVAL = 2.0
 
 
+async def _write_redacted_ffmpeg_log(stderr: asyncio.StreamReader | None, log_path: Path, secrets: list[str]) -> None:
+    if stderr is None:
+        return
+
+    try:
+        with log_path.open("w", encoding="utf-8") as log_file:
+            async for raw_line in stderr:
+                log_file.write(redact_secrets(raw_line.decode("utf-8", errors="replace"), secrets))
+    except Exception:
+        # Continue draining stderr so a full pipe cannot block ffmpeg before the
+        # caller records this log-capture failure on the job.
+        async for _ in stderr:
+            pass
+        raise
+
+
 def _terminate_process(process: asyncio.subprocess.Process) -> None:
     if process.returncode is not None:
         return
@@ -41,7 +57,6 @@ async def _read_ffmpeg_streams(
     store: JobStore,
     job_id: str,
     process: asyncio.subprocess.Process,
-    log_path: Path,
     progress_file: Path,
     temp_output_path: Path,
 ) -> int:
@@ -213,20 +228,24 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         return
 
     progress_file = TRANSCODING_TEMP_DIR / f"{job_id}.progress"
-    env = os.environ.copy()
-    env["FFREPORT"] = f"file={log_path}"
-    ffmpeg_args = get_ffmpeg_command(
-        settings,
-        input_url=job.input_url,
-        output_path=str(temp_output_path),
-        progress_file=str(progress_file),
-    )
+    try:
+        ffmpeg_args = get_ffmpeg_command(
+            settings,
+            input_url=job.input_url,
+            output_path=str(temp_output_path),
+            progress_file=str(progress_file),
+        )
+    except ValueError as exc:
+        error_message = f"Invalid ffmpeg flag configuration: {exc}"
+        logger.error("Job %s failed: %s", job_id, error_message)
+        await _mark_failed(store, job_id, error_message)
+        return
 
     try:
         process = await asyncio.create_subprocess_exec(
             *ffmpeg_args,
             stdout=asyncio.subprocess.DEVNULL,
-            env=env,
+            stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError as e:
         logger.error("ffmpeg not found: %s", e)
@@ -237,7 +256,16 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         await _mark_failed(store, job_id, f"Failed to start ffmpeg: {e}")
         return
 
-    return_code = await _read_ffmpeg_streams(store, job_id, process, log_path, progress_file, temp_output_path)
+    log_task = asyncio.create_task(_write_redacted_ffmpeg_log(process.stderr, log_path, [settings.jellyfin_api_key]))
+    return_code = await _read_ffmpeg_streams(store, job_id, process, progress_file, temp_output_path)
+    try:
+        await log_task
+    except Exception as exc:
+        temp_output_path.unlink(missing_ok=True)
+        error_message = f"Failed to write redacted ffmpeg log: {exc}"
+        logger.exception("Job %s failed: %s", job_id, error_message)
+        await _mark_failed(store, job_id, error_message)
+        return
 
     current_job = await store.get(job_id)
     if current_job and current_job.cancel_requested:
@@ -282,17 +310,14 @@ def _load_worker_settings(previous: Settings | None = None) -> Settings:
             settings.redis_port,
             settings.log_level,
         )
-        logging.getLogger().setLevel(settings.log_level)
+        setup_logging(settings.log_level, [settings.jellyfin_api_key, settings.app_password])
 
     return settings
 
 
 async def main() -> None:
     settings = _load_worker_settings()
-    logging.basicConfig(
-        level=settings.log_level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    setup_logging(settings.log_level, [settings.jellyfin_api_key, settings.app_password])
 
     logger.info(
         "Starting ffmpeg worker, Redis at %s:%s worker_temp_dir=%s",

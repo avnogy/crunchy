@@ -19,9 +19,10 @@ from app.web.jobs import router as jobs_router
 from app.web.settings import router as settings_router
 
 settings = load_settings()
-setup_logging(settings.log_level)
+setup_logging(settings.log_level, [settings.jellyfin_api_key])
 logger = logging.getLogger(__name__)
 ensure_app_password(settings)
+setup_logging(settings.log_level, [settings.jellyfin_api_key, settings.app_password])
 ensure_managed_directories()
 
 templates = Jinja2Templates(directory="app/web")

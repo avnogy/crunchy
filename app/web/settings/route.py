@@ -38,7 +38,11 @@ async def get_settings(request: Request):
 async def get_ffmpeg_command_api(request: Request):
     settings = request.app.state.settings
     logger.debug("Generating ffmpeg command preview from saved settings")
-    cmd = get_ffmpeg_command(settings)
+    try:
+        cmd = get_ffmpeg_command(settings)
+    except ValueError as exc:
+        logger.warning("Cannot generate ffmpeg command preview: %s", exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse({"command": cmd})
 
 

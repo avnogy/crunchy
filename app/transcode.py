@@ -11,6 +11,7 @@ from app.jellyfin import JellyfinClient
 from app.jobs import Job, JobStore, Progress
 from app.paths import OUTPUT_DIR, TRANSCODING_TEMP_DIR
 from app.presets import Preset
+from app.settings_service import ensure_allowed_ffmpeg_flags
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,6 @@ def get_ffmpeg_command(
         "+faststart",
         "-loglevel",
         "info",
-        "-report",
         "-progress",
         str(progress_file),
         "-nostats",
@@ -93,6 +93,8 @@ def get_ffmpeg_command(
         str(settings.jobs_poll_interval_ms / 1000),
     ]
 
+    # Saved settings may predate validation or have been edited manually.
+    ensure_allowed_ffmpeg_flags(settings.ffmpeg_flags)
     args.extend(settings.ffmpeg_flags)
     args.append(str(output_path))
     return args
