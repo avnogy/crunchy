@@ -72,7 +72,12 @@ async def _read_ffmpeg_streams(
                 await asyncio.sleep(0.5)
                 continue
 
-            lines = progress_file.read_text().splitlines()
+            try:
+                lines = progress_file.read_text().splitlines()
+            except (OSError, UnicodeError) as exc:
+                logger.debug("Unable to read progress file for %s: %s", job_id, exc)
+                await asyncio.sleep(0.5)
+                continue
             new_lines = lines[processed_lines:]
             processed_lines = len(lines)
 
@@ -232,9 +237,7 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         await _mark_failed(store, job_id, f"Failed to start ffmpeg: {e}")
         return
 
-    return_code = await _read_ffmpeg_streams(
-        store, job_id, process, log_path, progress_file, temp_output_path
-    )
+    return_code = await _read_ffmpeg_streams(store, job_id, process, log_path, progress_file, temp_output_path)
 
     current_job = await store.get(job_id)
     if current_job and current_job.cancel_requested:
@@ -304,9 +307,7 @@ async def main() -> None:
             client = get_redis_client(settings)
             await client.ping()
             store = JobStore(client)
-            logger.info(
-                "Connected to Redis at %s:%s", settings.redis_host, settings.redis_port
-            )
+            logger.info("Connected to Redis at %s:%s", settings.redis_host, settings.redis_port)
 
             while True:
                 try:
