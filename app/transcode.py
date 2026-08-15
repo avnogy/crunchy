@@ -85,7 +85,7 @@ def get_ffmpeg_command(
         "-movflags",
         "+faststart",
         "-loglevel",
-        "info",
+        "warning",
         "-progress",
         str(progress_file),
         "-nostats",
