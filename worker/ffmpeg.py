@@ -211,8 +211,21 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         [settings.jellyfin_api_key, settings.app_password],
     )
     job_logger.info(
-        "Job details: %s",
-        job.model_dump_json(exclude_computed_fields=True),
+        "Job details:\n"
+        "  id: %s\n"
+        "  item_id: %s\n"
+        "  item_name: %s\n"
+        "  preset: %s\n"
+        "  audio_stream_index: %s\n"
+        "  subtitle_stream_index: %s\n"
+        "  input_url: %s",
+        job.id,
+        job.item_id,
+        job.item_name,
+        job.preset,
+        job.audio_stream_index,
+        job.subtitle_stream_index,
+        job.input_url,
     )
 
     if job.state == JobState.CANCELLED or job.cancel_requested:
