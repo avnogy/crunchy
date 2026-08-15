@@ -90,9 +90,7 @@ async def create_job(request: Request, data: CreateJobPayload):
                 await get_store(settings).delete_if_unchanged(job)
         logger.exception("Failed to create job for item_id=%s", item_id)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    logger.info(
-        "Queued new job %s for item_id=%s preset=%s", job.id, item_id, preset_key
-    )
+    logger.info("Queued new job %s for item_id=%s preset=%s", job.id, item_id, preset_key)
     return JSONResponse({"job": job.model_dump()}, status_code=201)
 
 
@@ -200,9 +198,7 @@ async def delete_job(request: Request, job_id: str):
             else:
                 deleted_files.append(str(temp_path))
 
-    logger.info(
-        "Deleted job %s and %d related file(s)", job_id, len(deleted_files)
-    )
+    logger.info("Deleted job %s and %d related file(s)", job_id, len(deleted_files))
     return JSONResponse({"deleted_job_id": job_id, "deleted_files": deleted_files})
 
 
@@ -215,9 +211,7 @@ async def download_job(request: Request, job_id: str):
         logger.exception("Redis failure while loading download for job %s", job_id)
         raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
     if job.state != JobState.COMPLETED or not job.is_download_available():
-        logger.warning(
-            "Download requested for unavailable job output job_id=%s", job_id
-        )
+        logger.warning("Download requested for unavailable job output job_id=%s", job_id)
         raise HTTPException(status_code=400, detail="Not ready")
     output_path = Path(job.output_path)
     logger.info("Serving download for job %s", job_id)

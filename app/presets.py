@@ -22,9 +22,7 @@ def get_effective_presets(
 ) -> dict[str, dict[str, Any]]:
     if not isinstance(presets, Mapping):
         return deepcopy(DEFAULT_PRESETS)
-    return {
-        k: Preset(**p).model_dump() for k, p in presets.items() if isinstance(k, str)
-    } or deepcopy(DEFAULT_PRESETS)
+    return {k: Preset(**p).model_dump() for k, p in presets.items() if isinstance(k, str)} or deepcopy(DEFAULT_PRESETS)
 
 
 NEW_PRESET_TEMPLATE: dict[str, Any] = Preset().model_dump()

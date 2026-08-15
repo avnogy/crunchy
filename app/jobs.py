@@ -92,9 +92,7 @@ def job_dedupe_id(
         "preset": preset_key,
         "subtitle_stream_index": subtitle_stream_index,
     }
-    digest = hashlib.sha256(
-        json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return f"dedupe-{digest[:32]}"
 
 
@@ -188,9 +186,7 @@ class JobStore:
         job = Job.model_validate_json(data)
         updated = job.model_copy(update=changes)
 
-        await self.client.set(
-            key, updated.model_dump_json(exclude_computed_fields=True)
-        )
+        await self.client.set(key, updated.model_dump_json(exclude_computed_fields=True))
 
         return updated
 

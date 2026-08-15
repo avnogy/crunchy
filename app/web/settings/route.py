@@ -46,9 +46,7 @@ async def get_ffmpeg_command_api(request: Request):
 async def ffmpeg_preview(request: Request, payload: FfmpegPreviewPayload):
     flags = validate_ffmpeg_flags(payload.ffmpeg_flags)
     logger.debug("Building ffmpeg preview with %d custom flag token(s)", len(flags))
-    preview_settings = request.app.state.settings.model_copy(
-        update={"ffmpeg_flags": flags}
-    )
+    preview_settings = request.app.state.settings.model_copy(update={"ffmpeg_flags": flags})
     cmd = get_ffmpeg_command(
         preview_settings,
     )
