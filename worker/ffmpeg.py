@@ -210,6 +210,10 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         settings.log_level,
         [settings.jellyfin_api_key, settings.app_password],
     )
+    job_logger.info(
+        "Job details: %s",
+        job.model_dump_json(exclude_computed_fields=True),
+    )
 
     if job.state == JobState.CANCELLED or job.cancel_requested:
         logger.info("Skipping cancelled queued job %s", job_id)
@@ -298,6 +302,7 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         if temp_output_path.exists():
             output_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(temp_output_path), str(output_path))
+        job_logger.info("Output file found: %s", output_path)
         logger.debug("Marking job %s COMPLETED (rc=%s)", job_id, return_code)
         try:
             await store.update(
