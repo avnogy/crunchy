@@ -27,12 +27,18 @@ logger = logging.getLogger(__name__)
 CANCEL_CHECK_INTERVAL = 2.0
 
 
-async def _write_redacted_ffmpeg_log(stderr: asyncio.StreamReader | None, log_path: Path, secrets: list[str]) -> None:
+async def _write_redacted_ffmpeg_log(
+    stderr: asyncio.StreamReader | None,
+    log_path: Path,
+    secrets: list[str],
+    start_message: str,
+) -> None:
     if stderr is None:
         return
 
     try:
         with log_path.open("w", encoding="utf-8") as log_file:
+            log_file.write(f"{start_message}\n\n")
             async for raw_line in stderr:
                 log_file.write(redact_secrets(raw_line.decode("utf-8", errors="replace"), secrets))
     except Exception:
@@ -256,7 +262,14 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         await _mark_failed(store, job_id, f"Failed to start ffmpeg: {e}")
         return
 
-    log_task = asyncio.create_task(_write_redacted_ffmpeg_log(process.stderr, log_path, [settings.jellyfin_api_key]))
+    log_task = asyncio.create_task(
+        _write_redacted_ffmpeg_log(
+            process.stderr,
+            log_path,
+            [settings.jellyfin_api_key],
+            f"FFmpeg started at {utcnow_iso()} for job {job_id}: {job.item_name}",
+        )
+    )
     return_code = await _read_ffmpeg_streams(store, job_id, process, progress_file, temp_output_path)
     try:
         await log_task
