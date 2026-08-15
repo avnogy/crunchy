@@ -93,7 +93,7 @@ def job_dedupe_id(
         "subtitle_stream_index": subtitle_stream_index,
     }
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    return f"dedupe-{digest[:32]}"
+    return f"job-{digest[:32]}"
 
 
 def new_job(
