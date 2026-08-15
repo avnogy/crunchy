@@ -1,7 +1,127 @@
+const PRESET_NUMBER_FIELDS = new Set([
+  "maxHeight",
+  "videoBitrate",
+  "audioBitrate",
+]);
+const PRESET_FIELDS = [
+  {
+    name: "name",
+    type: "text",
+    placeholder: "Name",
+    className: "md:col-span-3",
+  },
+  { name: "maxHeight", type: "number", placeholder: "Height" },
+  { name: "videoBitrate", type: "number", placeholder: "Video bitrate" },
+  { name: "audioBitrate", type: "number", placeholder: "Audio bitrate" },
+  { name: "videoCodec", type: "text", placeholder: "Video codec" },
+  { name: "audioCodec", type: "text", placeholder: "Audio codec" },
+  { name: "segmentContainer", type: "text", placeholder: "Segment container" },
+];
+
 let newPresetTemplate = {};
 let presets = {};
 let storedApiKeyLength = 0;
 let storedAppPasswordLength = 0;
+
+function presetFieldClass() {
+  return "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800";
+}
+
+function renderPresetField(key, preset, field) {
+  return `
+    <label class="block ${field.className || ""}">
+      <span class="mb-1.5 block text-xs font-medium uppercase tracking-[0.16em] text-slate-400">
+        ${window.ui.escapeHtml(field.placeholder)}
+      </span>
+      <input
+        type="${field.type}"
+        data-preset-key="${window.ui.escapeHtml(key)}"
+        data-field="${field.name}"
+        value="${window.ui.escapeHtml(preset[field.name])}"
+        class="${presetFieldClass()}"
+        placeholder="${window.ui.escapeHtml(field.placeholder)}"
+      >
+    </label>
+  `;
+}
+
+function renderPresetCard(key, preset) {
+  return `
+    <section class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div class="flex flex-col gap-4 lg:flex-row lg:items-start">
+        <div class="grid flex-1 gap-3 md:grid-cols-3">
+          ${PRESET_FIELDS.map((field) => renderPresetField(key, preset, field)).join("")}
+        </div>
+        <button
+          type="button"
+          data-delete-preset="${window.ui.escapeHtml(key)}"
+          class="ui-button-danger rounded-lg border px-3 py-2 text-sm font-medium transition"
+        >
+          Remove
+        </button>
+      </div>
+    </section>
+  `;
+}
+
+function renderPresets() {
+  const container = document.getElementById("presets-list");
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = Object.entries(presets)
+    .map(([key, preset]) => renderPresetCard(key, preset))
+    .join("");
+}
+
+function updateSecretPlaceholders() {
+  const apiKeyInput = document.getElementById("jellyfin-api-key");
+  const apiKeyHelp = document.getElementById("jellyfin-api-key-help");
+  if (apiKeyInput) {
+    apiKeyInput.placeholder =
+      storedApiKeyLength > 0
+        ? "\u2022".repeat(Math.min(storedApiKeyLength, 16))
+        : "";
+  }
+  if (apiKeyHelp) {
+    apiKeyHelp.textContent =
+      storedApiKeyLength > 0
+        ? `Current value saved (${storedApiKeyLength} chars)`
+        : "";
+  }
+
+  const appPasswordInput = document.getElementById("app-password");
+  const appPasswordHelp = document.getElementById("app-password-help");
+  if (appPasswordInput) {
+    appPasswordInput.placeholder =
+      storedAppPasswordLength > 0
+        ? "\u2022".repeat(Math.min(storedAppPasswordLength, 16))
+        : "";
+  }
+  if (appPasswordHelp) {
+    appPasswordHelp.textContent =
+      storedAppPasswordLength > 0
+        ? `Current value saved (${storedAppPasswordLength} chars)`
+        : "Required";
+  }
+}
+
+function updateFfmpegPreviewState(message, isError) {
+  const previewEl = document.getElementById("ffmpeg-preview");
+  const flagInput = document.querySelector('[name="ffmpeg_flags"]');
+  if (!previewEl || !flagInput) {
+    return;
+  }
+
+  previewEl.textContent = message;
+  previewEl.className = `overflow-x-auto rounded-lg border border-slate-200 p-4 font-mono text-xs ${
+    isError ? "ui-code-surface-error" : "ui-code-surface"
+  }`;
+
+  flagInput.classList.toggle("ui-input-error", isError);
+  flagInput.classList.toggle("border-slate-300", !isError);
+}
 
 async function clearDirectory(endpoint, label, button) {
   if (
@@ -12,359 +132,190 @@ async function clearDirectory(endpoint, label, button) {
     return;
   }
 
-  const result = document.getElementById("paths-result");
-  const originalText = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Emptying...";
-  }
-
   try {
-    const resp = await fetch(endpoint, { method: "POST" });
-    const data = await resp.json().catch(() => null);
-    if (!resp.ok) {
-      throw new Error(data?.detail || "Failed");
-    }
-
-    if (result) {
-      result.textContent = `Emptied ${label}: removed ${data.cleared} item(s).`;
-      result.className = "text-sm text-green-600";
-    }
+    const data = await window.ui.withBusyState(button, "Emptying...", () =>
+      window.ui.request(endpoint, { method: "POST" }),
+    );
+    toast.success(`Emptied ${label}: removed ${data.cleared} item(s)`);
   } catch (error) {
-    if (result) {
-      result.textContent = `Failed to empty ${label}.`;
-      result.className = "text-sm text-red-600";
-    }
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
+    toast.error(`Failed to empty ${label}`);
   }
 }
 
-function renderPresets() {
-  const container = document.getElementById("presets-list");
-  container.innerHTML = "";
+function populateForm(settings) {
+  Object.entries(settings).forEach(([key, value]) => {
+    const input = document.querySelector(`[name="${key}"]`);
+    if (!input) {
+      return;
+    }
 
-  Object.entries(presets).forEach(([key, preset]) => {
-    const div = document.createElement("div");
-    div.className =
-      "flex gap-4 items-start p-4 bg-gray-50 rounded-lg";
-    div.innerHTML = `
-            <div class="flex-1 space-y-2">
-                <input type="text" data-preset-key="${key}" data-field="name" value="${preset.name}" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Name">
-                <div class="grid grid-cols-3 gap-2">
-                    <input type="number" data-preset-key="${key}" data-field="maxHeight" value="${preset.maxHeight}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Height">
-                    <input type="number" data-preset-key="${key}" data-field="videoBitrate" value="${preset.videoBitrate}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Video bitrate">
-                    <input type="number" data-preset-key="${key}" data-field="audioBitrate" value="${preset.audioBitrate}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Audio bitrate">
-                </div>
-                <div class="grid grid-cols-3 gap-2">
-                    <input type="text" data-preset-key="${key}" data-field="videoCodec" value="${preset.videoCodec}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Video codec">
-                    <input type="text" data-preset-key="${key}" data-field="audioCodec" value="${preset.audioCodec}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Audio codec">
-                    <input type="text" data-preset-key="${key}" data-field="segmentContainer" value="${preset.segmentContainer}" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Segment container">
-                </div>
-            </div>
-            <button type="button" data-delete="${key}" class="text-red-600 hover:text-red-700 p-2">×</button>
-        `;
-    container.appendChild(div);
-  });
-
-  container.querySelectorAll("[data-delete]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      delete presets[btn.dataset.delete];
-      renderPresets();
-    });
-  });
-
-  container.querySelectorAll("input[data-preset-key]").forEach((input) => {
-    input.addEventListener("input", () => {
-      const key = input.dataset.presetKey;
-      const field = input.dataset.field;
-      const val =
-        field.includes("Height") || field.includes("Bitrate")
-          ? parseInt(input.value, 10) || 0
-          : input.value;
-      presets[key][field] = val;
-    });
+    input.value =
+      key === "ffmpeg_flags" && Array.isArray(value) ? value.join(" ") : value;
   });
 }
-
-document.getElementById("add-preset")?.addEventListener("click", () => {
-  const key = "custom-" + Date.now().toString(36);
-  presets[key] = { ...newPresetTemplate };
-  renderPresets();
-});
 
 async function loadSettings() {
   try {
-    const resp = await fetch("/api/settings");
-    if (!resp.ok) throw new Error("Failed");
-    const data = await resp.json();
+    const data = await window.ui.request("/api/settings");
     const settings = data.settings;
+
     storedApiKeyLength = Number(settings.jellyfin_api_key_length) || 0;
     storedAppPasswordLength = Number(settings.app_password_length) || 0;
     newPresetTemplate = settings.new_preset_template || {};
     presets = settings.presets || {};
-    renderPresets();
 
-    Object.keys(settings).forEach((key) => {
-      const input = document.querySelector(`[name="${key}"]`);
-      if (input) {
-        if (key === "ffmpeg_flags" && Array.isArray(settings[key])) {
-          input.value = settings[key].join(" ");
-        } else {
-          input.value = settings[key];
-        }
-      }
-    });
-    const apiKeyInput = document.getElementById("jellyfin-api-key");
-    if (apiKeyInput && storedApiKeyLength > 0) {
-      apiKeyInput.placeholder = "\u2022".repeat(
-        Math.min(storedApiKeyLength, 16),
-      );
-    }
-    const appPasswordInput = document.getElementById("app-password");
-    const appPasswordHelp = document.getElementById("app-password-help");
-    if (appPasswordInput && storedAppPasswordLength > 0) {
-      appPasswordInput.placeholder = "\u2022".repeat(
-        Math.min(storedAppPasswordLength, 16),
-      );
-    }
-    if (appPasswordHelp) {
-      appPasswordHelp.textContent =
-        storedAppPasswordLength > 0
-          ? `Leave blank to keep current (${storedAppPasswordLength} chars set)`
-          : "Required";
-    }
-    updateRedisHealthMessage("Uses the currently saved settings.", "text-sm text-gray-500");
-  } catch (e) {
-    console.error("Failed to load settings:", e);
+    populateForm(settings);
+    renderPresets();
+    updateSecretPlaceholders();
+    updatePreview();
+  } catch (error) {
+    toast.error("Failed to load settings");
   }
 }
 
-function updateRedisHealthMessage(message, className) {
-  const result = document.getElementById("redis-health-result");
-  if (!result) {
+function getSettingsPayload(form) {
+  const formData = new FormData(form);
+  return {
+    jellyfin_api_url: formData.get("jellyfin_api_url"),
+    jellyfin_api_key: formData.get("jellyfin_api_key"),
+    jellyfin_user_id: formData.get("jellyfin_user_id"),
+    app_password: formData.get("app_password"),
+    app_host: formData.get("app_host"),
+    app_port: formData.get("app_port"),
+    redis_host: formData.get("redis_host"),
+    redis_port: formData.get("redis_port"),
+    jobs_poll_interval_ms: formData.get("jobs_poll_interval_ms"),
+    log_level: formData.get("log_level"),
+    presets,
+    ffmpeg_flags: formData.get("ffmpeg_flags") || "",
+  };
+}
+
+function refreshStoredSecretState(savedSettings) {
+  newPresetTemplate = savedSettings?.new_preset_template || newPresetTemplate;
+  presets = savedSettings?.presets || presets;
+  storedApiKeyLength =
+    Number(savedSettings?.jellyfin_api_key_length) || storedApiKeyLength;
+  storedAppPasswordLength =
+    Number(savedSettings?.app_password_length) || storedAppPasswordLength;
+
+  const apiKeyInput = document.getElementById("jellyfin-api-key");
+  const appPasswordInput = document.getElementById("app-password");
+  if (apiKeyInput) {
+    apiKeyInput.value = "";
+  }
+  if (appPasswordInput) {
+    appPasswordInput.value = "";
+  }
+}
+
+async function saveSettings(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submitButton = form.querySelector('button[type="submit"]');
+
+  if (!form.reportValidity()) {
     return;
   }
-  result.textContent = message;
-  result.className = className;
-}
-
-document
-  .getElementById("settings-form")
-  ?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const form = e.target;
-    const formData = new FormData(form);
-    const result = document.getElementById("save-result");
-
-    if (!form.reportValidity()) {
-      return;
-    }
-
-    const data = {
-      jellyfin_api_url: formData.get("jellyfin_api_url"),
-      jellyfin_api_key: formData.get("jellyfin_api_key"),
-      jellyfin_user_id: formData.get("jellyfin_user_id"),
-      app_password: formData.get("app_password"),
-      app_host: formData.get("app_host"),
-      app_port: formData.get("app_port"),
-      redis_host: formData.get("redis_host"),
-      redis_port: formData.get("redis_port"),
-      jobs_poll_interval_ms: formData.get("jobs_poll_interval_ms"),
-      log_level: formData.get("log_level"),
-      presets,
-      ffmpeg_flags: formData.get("ffmpeg_flags") || "",
-    };
-
-    try {
-      const resp = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (resp.ok) {
-        const saved = await resp.json();
-        newPresetTemplate = saved?.settings?.new_preset_template || newPresetTemplate;
-        presets = saved?.settings?.presets || presets;
-        storedApiKeyLength =
-          Number(saved?.settings?.jellyfin_api_key_length) ||
-          storedApiKeyLength;
-        storedAppPasswordLength =
-          Number(saved?.settings?.app_password_length) ||
-          storedAppPasswordLength;
-        result.textContent = "Saved!";
-        result.className = "text-sm text-green-600";
-        const apiKeyInput = document.getElementById("jellyfin-api-key");
-        if (apiKeyInput) {
-          apiKeyInput.value = "";
-          apiKeyInput.placeholder = "\u2022".repeat(
-            Math.min(storedApiKeyLength, 16),
-          );
-        }
-        const apiKeyHelp = document.getElementById("jellyfin-api-key-help");
-        if (apiKeyHelp) {
-          apiKeyHelp.textContent = `Leave blank to keep current (${storedApiKeyLength} chars set)`;
-          apiKeyHelp.className = "text-xs text-gray-500 mt-1";
-        }
-        const appPasswordInput = document.getElementById("app-password");
-        if (appPasswordInput) {
-          appPasswordInput.value = "";
-          appPasswordInput.placeholder = "\u2022".repeat(
-            Math.min(storedAppPasswordLength, 16),
-          );
-        }
-        const appPasswordHelp = document.getElementById("app-password-help");
-        if (appPasswordHelp) {
-          appPasswordHelp.textContent = `Leave blank to keep current (${storedAppPasswordLength} chars set)`;
-        }
-        updateRedisHealthMessage(
-          "Saved. Redis connectivity check uses the saved values.",
-          "text-sm text-gray-500",
-        );
-        renderPresets();
-      } else {
-        const error = await resp.json().catch(() => null);
-        result.textContent = error?.detail || "Error saving";
-        result.className = "text-sm text-red-600";
-      }
-    } catch (e) {
-      result.textContent = "Error saving";
-      result.className = "text-sm text-red-600";
-    }
-
-    setTimeout(() => {
-      result.textContent = "";
-    }, 3000);
-  });
-
-async function updatePreview() {
-  const flagInput = document.querySelector('[name="ffmpeg_flags"]');
-  const raw = flagInput?.value ?? "";
 
   try {
-    const resp = await fetch("/api/ffmpeg-preview", {
+    const saved = await window.ui.withBusyState(submitButton, "Saving...", () =>
+      window.ui.requestJson("/api/settings", {
+        method: "POST",
+        body: getSettingsPayload(form),
+      }),
+    );
+
+    refreshStoredSecretState(saved?.settings);
+    updateSecretPlaceholders();
+    renderPresets();
+    updatePreview();
+    toast.success("Saved");
+  } catch (error) {
+    toast.error(error.data?.detail || "Error saving");
+  }
+}
+
+async function updatePreview() {
+  const raw = document.querySelector('[name="ffmpeg_flags"]')?.value ?? "";
+
+  try {
+    const data = await window.ui.requestJson("/api/ffmpeg-preview", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ffmpeg_flags: raw }),
+      body: { ffmpeg_flags: raw },
     });
-
-    if (!resp.ok) {
-      const errorData = await resp.json();
-      const errorMessage = errorData.detail || "Invalid flags";
-      const previewEl = document.getElementById("ffmpeg-preview");
-      previewEl.textContent = errorMessage;
-      previewEl.className =
-        "bg-gray-800 text-red-400 text-xs p-4 rounded-lg overflow-x-auto font-mono mt-1";
-      flagInput.classList.add(
-        "border-red-500",
-        "focus:ring-red-500",
-        "focus:border-red-500",
-      );
-      flagInput.classList.remove(
-        "border-gray-200",
-        "focus:ring-blue-500",
-        "focus:border-transparent",
-      );
-      return;
-    }
-
-    const data = await resp.json();
-    const previewEl = document.getElementById("ffmpeg-preview");
-    previewEl.textContent = data.command.join(" ");
-    previewEl.className =
-      "bg-gray-800 text-green-400 text-xs p-4 rounded-lg overflow-x-auto font-mono mt-1";
-    flagInput.classList.remove(
-      "border-red-500",
-      "focus:ring-red-500",
-      "focus:border-red-500",
-    );
-    flagInput.classList.add(
-      "border-gray-200",
-      "focus:ring-blue-500",
-      "focus:border-transparent",
-    );
-  } catch (e) {
-    const previewEl = document.getElementById("ffmpeg-preview");
-    previewEl.textContent = "Error loading preview";
-    previewEl.className =
-      "bg-gray-800 text-red-400 text-xs p-4 rounded-lg overflow-x-auto font-mono mt-1";
-    flagInput.classList.add(
-      "border-red-500",
-      "focus:ring-red-500",
-      "focus:border-red-500",
-    );
-    flagInput.classList.remove(
-      "border-gray-200",
-      "focus:ring-blue-500",
-      "focus:border-transparent",
-    );
+    updateFfmpegPreviewState(data.command.join(" "), false);
+  } catch (error) {
+    updateFfmpegPreviewState(error.data?.detail || "Invalid flags", true);
   }
 }
 
 async function checkRedisHealth(button) {
-  const originalText = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Checking...";
-  }
-  updateRedisHealthMessage("Checking saved Redis settings...", "text-sm text-gray-500");
-
   try {
-    const resp = await fetch("/api/redis-health");
-    const data = await resp.json().catch(() => null);
-    if (!resp.ok) {
-      throw new Error(data?.detail || "Redis unavailable");
-    }
-    updateRedisHealthMessage(
-      "Redis is reachable with the saved host and port.",
-      "text-sm text-green-600",
+    await window.ui.withBusyState(button, "Checking...", () =>
+      window.ui.request("/api/redis-health"),
     );
+    toast.success("Redis is reachable with the saved host and port");
   } catch (error) {
-    updateRedisHealthMessage(
-      "Redis check failed for the saved host and port.",
-      "text-sm text-red-600",
-    );
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
+    toast.error("Redis check failed for the saved host and port");
   }
 }
 
+function addPreset() {
+  const key = `custom-${Date.now().toString(36)}`;
+  presets[key] = { ...newPresetTemplate };
+  renderPresets();
+}
+
+document
+  .getElementById("settings-form")
+  ?.addEventListener("submit", saveSettings);
 document
   .querySelector('[name="ffmpeg_flags"]')
   ?.addEventListener("input", updatePreview);
 
-document
-  .getElementById("check-redis-health")
-  ?.addEventListener("click", (event) => {
-    checkRedisHealth(event.currentTarget);
-  });
+document.addEventListener("click", (event) => {
+  const deleteButton = event.target.closest("[data-delete-preset]");
+  if (deleteButton) {
+    delete presets[deleteButton.dataset.deletePreset];
+    renderPresets();
+    return;
+  }
 
-document
-  .getElementById("clear-temp-dir")
-  ?.addEventListener("click", (event) => {
-    clearDirectory(
-      "/api/settings/clear-temp",
-      "temp folder",
-      event.currentTarget,
-    );
-  });
+  if (event.target.id === "add-preset") {
+    addPreset();
+    return;
+  }
 
-document
-  .getElementById("clear-output-dir")
-  ?.addEventListener("click", (event) => {
-    clearDirectory(
-      "/api/settings/clear-output",
-      "output folder",
-      event.currentTarget,
-    );
-  });
+  if (event.target.id === "check-redis-health") {
+    checkRedisHealth(event.target);
+    return;
+  }
+
+  if (event.target.id === "clear-temp-dir") {
+    clearDirectory("/api/settings/clear-temp", "temp folder", event.target);
+    return;
+  }
+
+  if (event.target.id === "clear-output-dir") {
+    clearDirectory("/api/settings/clear-output", "output folder", event.target);
+  }
+});
+
+document.addEventListener("input", (event) => {
+  if (!event.target.matches("input[data-preset-key]")) {
+    return;
+  }
+
+  const { presetKey: key, field } = event.target.dataset;
+  if (!key || !field || !presets[key]) {
+    return;
+  }
+
+  presets[key][field] = PRESET_NUMBER_FIELDS.has(field)
+    ? parseInt(event.target.value, 10) || 0
+    : event.target.value;
+});
 
 loadSettings();
 renderPresets();
-updatePreview();

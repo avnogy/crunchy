@@ -20,10 +20,7 @@ async def home(request: Request):
     client = JellyfinClient(settings)
     try:
         data = await client.get_library()
-        items = [
-            normalize_item(item, settings.jellyfin_api_url)
-            for item in data.get("Items", [])
-        ]
+        items = [normalize_item(item, settings.jellyfin_api_url) for item in data.get("Items", [])]
         logger.info("Loaded home library with %d items", len(items))
     except httpx.HTTPError:
         logger.warning("Failed to load home library from Jellyfin")

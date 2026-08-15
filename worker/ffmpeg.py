@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
-import os
 from pathlib import Path
 
 import redis.asyncio
 
 from app.config import Settings, load_settings
+from app.jellyfin import JellyfinClient
+from app.logging import LOG_FORMAT, RedactingFormatter, setup_logging
 from app.jobs import (
     JOB_QUEUE_KEY,
     Job,
@@ -26,11 +27,36 @@ logger = logging.getLogger(__name__)
 CANCEL_CHECK_INTERVAL = 2.0
 
 
+def _create_job_logger(job_id: str, log_path: Path, level: str, secrets: list[str]) -> logging.Logger:
+    resolved_level = getattr(logging, level.upper(), logging.INFO)
+    job_logger = logging.getLogger(f"{__name__}.job.{job_id}")
+    job_logger.setLevel(resolved_level)
+    job_logger.propagate = False
+    for handler in job_logger.handlers:
+        handler.close()
+    job_logger.handlers.clear()
+
+    handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    handler.setLevel(resolved_level)
+    handler.setFormatter(RedactingFormatter(LOG_FORMAT, secrets=secrets))
+    job_logger.addHandler(handler)
+    return job_logger
+
+
+def _terminate_process(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    try:
+        process.terminate()
+    except ProcessLookupError:
+        # ffmpeg can exit between the liveness check and terminate().
+        pass
+
+
 async def _read_ffmpeg_streams(
     store: JobStore,
     job_id: str,
     process: asyncio.subprocess.Process,
-    log_path: Path,
     progress_file: Path,
     temp_output_path: Path,
 ) -> int:
@@ -42,8 +68,7 @@ async def _read_ffmpeg_streams(
                 current_job = await store.get(job_id)
                 if current_job and current_job.cancel_requested:
                     cancel_requested.set()
-                    if process.returncode is None:
-                        process.terminate()
+                    _terminate_process(process)
                     break
             except Exception:
                 pass
@@ -62,7 +87,12 @@ async def _read_ffmpeg_streams(
                 await asyncio.sleep(0.5)
                 continue
 
-            lines = progress_file.read_text().splitlines()
+            try:
+                lines = progress_file.read_text().splitlines()
+            except (OSError, UnicodeError) as exc:
+                logger.debug("Unable to read progress file for %s: %s", job_id, exc)
+                await asyncio.sleep(0.5)
+                continue
             new_lines = lines[processed_lines:]
             processed_lines = len(lines)
 
@@ -111,7 +141,7 @@ async def _read_ffmpeg_streams(
         await progress_task
     if cancel_requested.is_set():
         logger.info("Cancelling running job %s", job_id)
-        process.terminate()
+        _terminate_process(process)
         try:
             await asyncio.wait_for(process.wait(), timeout=10)
         except asyncio.TimeoutError:
@@ -119,11 +149,7 @@ async def _read_ffmpeg_streams(
             await process.wait()
         progress_file.unlink(missing_ok=True)
         temp_output_path.unlink(missing_ok=True)
-        await store.update(
-            job_id,
-            state=JobState.CANCELLED,
-            finished_at=utcnow_iso(),
-        )
+        await _mark_cancelled(store, job_id, temp_output_path)
 
     return_code = process.returncode or 0
     return return_code
@@ -149,27 +175,58 @@ async def _mark_cancelled(store: JobStore, job_id: str, temp_output_path: Path) 
 
 async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
     job_id = job.id
-    output_path = build_output_path(job)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    existing = await store.find_reusable_by_item_and_preset(job.item_id, job.preset, audio_stream_index=job.audio_stream_index)
-    if (
-        existing
-        and existing.state == JobState.COMPLETED
-        and existing.is_download_available()
-    ):
-        logger.info("Reusing completed job %s for item %s", existing.id, job.item_name)
-        await store.update(
+    client = JellyfinClient(settings)
+    current_job = await store.get(job_id)
+    if not current_job:
+        logger.info("Skipping deleted job %s before worker startup", job_id)
+        return
+    if current_job.state != JobState.QUEUED:
+        logger.info(
+            "Skipping queued entry for job %s in state %s",
             job_id,
-            state=JobState.COMPLETED,
-            output_path=existing.output_path,
-            finished_at=existing.finished_at,
+            current_job.state.value,
         )
         return
+    job = current_job
+
+    try:
+        item = await client.get_item(job.item_id)
+    except Exception as exc:
+        logger.warning(
+            "Falling back to job metadata for %s after item lookup failed: %s",
+            job_id,
+            exc,
+        )
+        item = {}
+    output_path = build_output_path(job, item)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     log_path = TRANSCODING_TEMP_DIR / f"{job_id}.log"
     TRANSCODING_TEMP_DIR.mkdir(parents=True, exist_ok=True)
     temp_output_path = TRANSCODING_TEMP_DIR / f"{job_id}{output_path.suffix}"
+    job_logger = _create_job_logger(
+        job_id,
+        log_path,
+        settings.log_level,
+        [settings.jellyfin_api_key, settings.app_password],
+    )
+    job_logger.info(
+        "Job details:\n"
+        "  id: %s\n"
+        "  item_id: %s\n"
+        "  item_name: %s\n"
+        "  preset: %s\n"
+        "  audio_stream_index: %s\n"
+        "  subtitle_stream_index: %s\n"
+        "  input_url: %s",
+        job.id,
+        job.item_id,
+        job.item_name,
+        job.preset,
+        job.audio_stream_index,
+        job.subtitle_stream_index,
+        job.input_url,
+    )
 
     if job.state == JobState.CANCELLED or job.cancel_requested:
         logger.info("Skipping cancelled queued job %s", job_id)
@@ -177,9 +234,8 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         return
     logger.info("Running job %s -> %s (temp)", job_id, temp_output_path)
 
-    current_job = await store.get(job_id)
     existing_progress = current_job.progress if current_job else Progress()
-    await store.update(
+    updated_job = await store.update(
         job_id,
         state=JobState.RUNNING,
         started_at=utcnow_iso(),
@@ -190,38 +246,67 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         speed="",
         progress=existing_progress,
     )
+    if not updated_job:
+        logger.info("Skipping deleted job %s before ffmpeg launch", job_id)
+        return
 
     progress_file = TRANSCODING_TEMP_DIR / f"{job_id}.progress"
-    env = os.environ.copy()
-    env["FFREPORT"] = f"file={log_path}"
-    ffmpeg_args = get_ffmpeg_command(
-        settings,
-        input_url=job.input_url,
-        output_path=str(temp_output_path),
-        progress_file=str(progress_file),
-    )
+    try:
+        ffmpeg_args = get_ffmpeg_command(
+            settings,
+            input_url=job.input_url,
+            output_path=str(temp_output_path),
+            progress_file=str(progress_file),
+        )
+    except ValueError as exc:
+        error_message = f"Invalid ffmpeg flag configuration: {exc}"
+        job_logger.error("FFmpeg failed: %s", error_message)
+        logger.error("Job %s failed: %s", job_id, error_message)
+        await _mark_failed(store, job_id, error_message)
+        return
 
     try:
         process = await asyncio.create_subprocess_exec(
             *ffmpeg_args,
             stdout=asyncio.subprocess.DEVNULL,
-            env=env,
+            stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError as e:
-        logger.error("ffmpeg not found: %s", e)
-        await _mark_failed(store, job_id, f"ffmpeg not found: {e}")
+        error_message = f"ffmpeg not found: {e}"
+        job_logger.error("FFmpeg failed: %s", error_message)
+        logger.error("%s", error_message)
+        await _mark_failed(store, job_id, error_message)
         return
     except OSError as e:
-        logger.error("Failed to start ffmpeg: %s", e)
-        await _mark_failed(store, job_id, f"Failed to start ffmpeg: {e}")
+        error_message = f"Failed to start ffmpeg: {e}"
+        job_logger.error("FFmpeg failed: %s", error_message)
+        logger.error("%s", error_message)
+        await _mark_failed(store, job_id, error_message)
         return
 
-    return_code = await _read_ffmpeg_streams(
-        store, job_id, process, log_path, progress_file, temp_output_path
-    )
+    job_logger.info("FFmpeg started for job %s: %s", job_id, job.item_name)
+
+    async def log_ffmpeg_stderr() -> None:
+        if process.stderr is None:
+            return
+        async for raw_line in process.stderr:
+            job_logger.warning("%s", raw_line.decode("utf-8", errors="replace").rstrip("\r\n"))
+
+    log_task = asyncio.create_task(log_ffmpeg_stderr())
+    return_code = await _read_ffmpeg_streams(store, job_id, process, progress_file, temp_output_path)
+    try:
+        await log_task
+    except Exception as exc:
+        temp_output_path.unlink(missing_ok=True)
+        error_message = f"Failed to capture FFmpeg log: {exc}"
+        job_logger.error("FFmpeg failed: %s", error_message)
+        logger.exception("Job %s failed: %s", job_id, error_message)
+        await _mark_failed(store, job_id, error_message)
+        return
 
     current_job = await store.get(job_id)
     if current_job and current_job.cancel_requested:
+        job_logger.info("FFmpeg cancelled")
         await _mark_cancelled(store, job_id, temp_output_path)
         return
 
@@ -230,6 +315,7 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
         if temp_output_path.exists():
             output_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(temp_output_path), str(output_path))
+        job_logger.info("Output file found: %s", output_path)
         logger.debug("Marking job %s COMPLETED (rc=%s)", job_id, return_code)
         try:
             await store.update(
@@ -239,16 +325,18 @@ async def _run_job(store: JobStore, settings: Settings, job: Job) -> None:
                 output_path=str(output_path),
             )
         except Exception as e:
+            error_message = f"Completed file present but DB update failed: {e}"
+            job_logger.error("FFmpeg failed: %s", error_message)
             logger.exception("Failed to set COMPLETED state for %s: %s", job_id, e)
-            await _mark_failed(
-                store, job_id, f"Completed file present but DB update failed: {e}"
-            )
+            await _mark_failed(store, job_id, error_message)
             return
+        job_logger.info("FFmpeg finished successfully")
         logger.info("Completed job %s", job_id)
         return
 
     temp_output_path.unlink(missing_ok=True)
     error_message = f"ffmpeg exited with code {return_code}"
+    job_logger.error("FFmpeg failed: %s", error_message)
     await _mark_failed(store, job_id, error_message)
     logger.error("Job %s failed: %s", job_id, error_message)
 
@@ -265,17 +353,14 @@ def _load_worker_settings(previous: Settings | None = None) -> Settings:
             settings.redis_port,
             settings.log_level,
         )
-        logging.getLogger().setLevel(settings.log_level)
+        setup_logging(settings.log_level, [settings.jellyfin_api_key, settings.app_password])
 
     return settings
 
 
 async def main() -> None:
     settings = _load_worker_settings()
-    logging.basicConfig(
-        level=settings.log_level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    setup_logging(settings.log_level, [settings.jellyfin_api_key, settings.app_password])
 
     logger.info(
         "Starting ffmpeg worker, Redis at %s:%s worker_temp_dir=%s",
@@ -290,18 +375,26 @@ async def main() -> None:
             client = get_redis_client(settings)
             await client.ping()
             store = JobStore(client)
-            logger.info(
-                "Connected to Redis at %s:%s", settings.redis_host, settings.redis_port
-            )
+            logger.info("Connected to Redis at %s:%s", settings.redis_host, settings.redis_port)
 
             while True:
                 try:
                     result = await client.blpop(JOB_QUEUE_KEY, timeout=0)
                     if result is None:
                         continue
-                    _, payload = result
+                    _, queued_value = result
                     settings = _load_worker_settings(settings)
-                    job = Job.model_validate_json(payload)
+                    if queued_value.startswith("{"):
+                        stale_job = Job.model_validate_json(queued_value)
+                        logger.info(
+                            "Processing legacy serialized queue entry for job %s",
+                            stale_job.id,
+                        )
+                        queued_value = stale_job.id
+                    job = await store.get(queued_value)
+                    if job is None:
+                        logger.info("Skipping deleted queued job %s", queued_value)
+                        continue
                     await _run_job(store, settings, job)
                 except redis.asyncio.ConnectionError:
                     logger.warning("Lost connection to Redis, reconnecting...")

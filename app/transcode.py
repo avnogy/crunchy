@@ -11,6 +11,7 @@ from app.jellyfin import JellyfinClient
 from app.jobs import Job, JobStore, Progress
 from app.paths import OUTPUT_DIR, TRANSCODING_TEMP_DIR
 from app.presets import Preset
+from app.settings_service import ensure_allowed_ffmpeg_flags
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +21,42 @@ def _safe_output_name(name: str) -> str:
     return sanitized or "job"
 
 
-def build_output_path(job: Job) -> Path:
-    return OUTPUT_DIR / f"{job.id}_{_safe_output_name(job.item_name)}.mp4"
+def _format_bitrate(preset: Preset) -> str:
+    return f"{int(preset.videoBitrate / 1000)}kbps"
+
+
+def _format_quality(preset: Preset) -> str:
+    return f"{preset.maxHeight}p"
+
+
+def _episode_code(item: dict) -> str:
+    season = item.get("ParentIndexNumber")
+    episode = item.get("IndexNumber")
+    if isinstance(season, int) and isinstance(episode, int):
+        return f"S{season:02d}E{episode:02d}"
+    if isinstance(episode, int):
+        return f"E{episode:02d}"
+    return "Episode"
+
+
+def _build_output_stem(job: Job, item: dict) -> str:
+    preset = Preset(**job.preset)
+    quality = _format_quality(preset)
+    bitrate = _format_bitrate(preset)
+    item_type = item.get("Type")
+
+    if item_type == "Episode":
+        episode_code = _episode_code(item)
+        episode_name = item.get("Name") or job.item_name
+        return _safe_output_name(f"{episode_code} {episode_name} {quality} {bitrate}")
+
+    title = item.get("Name") or job.item_name
+    return _safe_output_name(f"{title} {quality} {bitrate}")
+
+
+def build_output_path(job: Job, item: dict) -> Path:
+    stem = _build_output_stem(job, item)
+    return OUTPUT_DIR / f"{stem} {job.id}.mp4"
 
 
 def get_ffmpeg_command(
@@ -35,13 +70,22 @@ def get_ffmpeg_command(
         "-y",
         "-i",
         input_url,
-        "-c",
+        "-map",
+        "0:v:0?",
+        "-map",
+        "0:a:0?",
+        "-map",
+        "0:s?",
+        "-c:v",
         "copy",
+        "-c:a",
+        "copy",
+        "-c:s",
+        "mov_text",
         "-movflags",
         "+faststart",
         "-loglevel",
-        "info",
-        "-report",
+        "warning",
         "-progress",
         str(progress_file),
         "-nostats",
@@ -49,14 +93,14 @@ def get_ffmpeg_command(
         str(settings.jobs_poll_interval_ms / 1000),
     ]
 
+    # Saved settings may predate validation or have been edited manually.
+    ensure_allowed_ffmpeg_flags(settings.ffmpeg_flags)
     args.extend(settings.ffmpeg_flags)
     args.append(str(output_path))
     return args
 
 
-def _build_transcode_url(
-    settings: Settings, job: Job, source_id: str
-) -> str:
+def _build_transcode_url(settings: Settings, job: Job, source_id: str) -> str:
     url = f"{settings.jellyfin_api_url}/Videos/{job.item_id}/main.m3u8"
     preset = Preset(**job.preset)
     params = {
@@ -74,13 +118,16 @@ def _build_transcode_url(
 
     if job.audio_stream_index is not None:
         params["audioStreamIndex"] = str(job.audio_stream_index)
+    if job.subtitle_stream_index is not None:
+        params["subtitleStreamIndex"] = str(job.subtitle_stream_index)
+        params["subtitleMethod"] = "Hls"
+        params["alwaysBurnInSubtitleWhenTranscoding"] = "true"
+        params["transcodeReasons"] = "ContainerNotSupported,SubtitleCodecNotSupported"
 
     return f"{url}?{urlencode(params)}"
 
 
-async def enqueue_job(
-    job: Job, settings: Settings, store: JobStore
-) -> Job:
+async def enqueue_job(job: Job, settings: Settings, store: JobStore) -> Job:
     logger.info("Enqueuing job %s: %s", job.id, job.item_name)
 
     client = JellyfinClient(settings)
@@ -104,12 +151,15 @@ async def enqueue_job(
                 run_time_ticks,
             )
 
-        input_url = _build_transcode_url(
-            settings, job, source_id
-        )
-    output_path = build_output_path(job)
+    input_url = _build_transcode_url(settings, job, source_id)
     job.input_url = input_url
 
-    await store.add(job)
+    updated_job = await store.update(
+        job.id,
+        input_url=input_url,
+        progress=job.progress,
+    )
+    if updated_job is not None:
+        job = updated_job
     logger.info("Job %s enqueued successfully to Redis", job.id)
     return job

@@ -1,0 +1,61 @@
+x-app-common: &app-common
+  image: ${CRUNCHY_IMAGE:-ghcr.io/avnogy/crunchy:latest}
+  env_file:
+    - .env
+  environment: &app-environment
+    APP_UID: ${APP_UID:-1000}
+    APP_GID: ${APP_GID:-1000}
+    REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+    REDIS_PORT: 6379
+
+x-app-volumes: &app-volumes
+  - ${CONFIG_PATH:-./data/config}:/config
+  - ${OUTPUT_PATH:-./data/output}:/data/output
+  - ${TEMP_PATH:-./data/temp}:/data/temp
+
+services:
+  redis:
+    image: redis:alpine
+    command: redis-server --save 60 1 --loglevel warning
+    network_mode: host
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - redis_data:/data
+
+  crunchy:
+    <<: *app-common
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:${APP_PORT:-8000}/healthz > /dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    volumes: *app-volumes
+
+  ffmpeg-worker:
+    <<: *app-common
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *app-environment
+      CRUNCHY_SERVICE_MODE: worker
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      FFMPEG_FLAGS: ${FFMPEG_FLAGS:-}
+    volumes: *app-volumes
+
+volumes:
+  redis_data:

@@ -12,24 +12,86 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_audio_streams(media_sources: list[dict]) -> list[dict] | None:
-    if not media_sources:
+    if not media_sources or not isinstance(media_sources[0], dict):
         return None
     streams = media_sources[0].get("MediaStreams", [])
-    audio = [
-        {
-            "index": s.get("Index"),
-            "language": (s.get("Language") or "").lower(),
-            "codec": s.get("Codec") or "",
-        }
-        for s in streams
-        if s.get("Type") == "Audio"
-    ]
+    if not isinstance(streams, list):
+        return None
+    audio = []
+
+    for stream in streams:
+        if not isinstance(stream, dict):
+            continue
+        if stream.get("Type") != "Audio":
+            continue
+
+        index = stream.get("Index")
+        if not isinstance(index, int):
+            continue
+
+        title = stream.get("DisplayTitle") or stream.get("Title") or ""
+        language = str(stream.get("Language") or "").lower()
+        codec = stream.get("Codec") or ""
+        audio.append(
+            {
+                "index": index,
+                "language": language,
+                "codec": codec,
+                "title": title,
+                "is_default": bool(stream.get("IsDefault")),
+            }
+        )
+
     return audio or None
 
 
-def normalize_item(
-    item: dict[str, Any], image_base_url: str | None = None
-) -> dict[str, Any]:
+def _extract_subtitle_streams(media_sources: list[dict]) -> list[dict] | None:
+    if not media_sources or not isinstance(media_sources[0], dict):
+        return None
+    streams = media_sources[0].get("MediaStreams", [])
+    if not isinstance(streams, list):
+        return None
+    subtitles = []
+
+    for stream in streams:
+        if not isinstance(stream, dict):
+            continue
+        if stream.get("Type") != "Subtitle":
+            continue
+
+        index = stream.get("Index")
+        if not isinstance(index, int):
+            continue
+
+        title = stream.get("DisplayTitle") or stream.get("Title") or ""
+        language = str(stream.get("Language") or "").lower()
+        codec = stream.get("Codec") or ""
+        subtitles.append(
+            {
+                "index": index,
+                "language": language,
+                "codec": codec,
+                "title": title,
+                "is_default": bool(stream.get("IsDefault")),
+            }
+        )
+
+    return subtitles or None
+
+
+def _apply_audio_streams(item: dict[str, Any], media_sources: list[dict]) -> None:
+    audio_streams = _extract_audio_streams(media_sources)
+    if audio_streams:
+        item["audio_streams"] = audio_streams
+
+
+def _apply_subtitle_streams(item: dict[str, Any], media_sources: list[dict]) -> None:
+    subtitle_streams = _extract_subtitle_streams(media_sources)
+    if subtitle_streams:
+        item["subtitle_streams"] = subtitle_streams
+
+
+def normalize_item(item: dict[str, Any], image_base_url: str | None = None) -> dict[str, Any]:
     item_type = item.get("Type")
     result = {
         "id": item.get("Id"),
@@ -37,33 +99,30 @@ def normalize_item(
         "type": item_type,
         "overview": item.get("Overview", ""),
         "year": item.get("ProductionYear"),
-        "season_number": (
-            item.get("ParentIndexNumber")
-            if item_type == "Episode"
-            else item.get("IndexNumber") or item.get("ParentIndexNumber")
-        ),
+        "season_number": (item.get("ParentIndexNumber") if item_type == "Episode" else item.get("IndexNumber") or item.get("ParentIndexNumber")),
         "episode_number": item.get("IndexNumber") if item_type == "Episode" else None,
     }
     item_id = item.get("Id")
     if item_id and image_base_url:
-        result["image"] = (
-            f"{image_base_url}/Items/{item_id}/Images/Primary?quality=80&width=400"
-        )
+        result["image"] = f"{image_base_url}/Items/{item_id}/Images/Primary?quality=80&width=960"
     run_time = item.get("RunTimeTicks")
     if run_time:
-        result["runtime_seconds"] = int(run_time) / 10_000_000
+        try:
+            result["runtime_seconds"] = int(run_time) / 10_000_000
+        except (TypeError, ValueError):
+            logger.warning("Ignoring invalid RunTimeTicks for item %s: %r", item_id, run_time)
     media_sources = item.get("MediaSources", [])
-    if media_sources:
-        result["size_bytes"] = int(media_sources[0].get("Size", 0))
-        audio_streams = _extract_audio_streams(media_sources)
-        if audio_streams:
-            result["audio_streams"] = audio_streams
+    if isinstance(media_sources, list) and media_sources and isinstance(media_sources[0], dict):
+        try:
+            result["size_bytes"] = int(media_sources[0].get("Size", 0))
+        except (TypeError, ValueError):
+            logger.warning("Ignoring invalid media size for item %s", item_id)
+        _apply_audio_streams(result, media_sources)
+        _apply_subtitle_streams(result, media_sources)
     return result
 
 
-async def get_item_with_children(
-    item_id: str, client: JellyfinClient
-) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+async def get_item_with_children(item_id: str, client: JellyfinClient) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     children: list[dict[str, Any]] = []
     item: dict[str, Any] | None = None
     try:
@@ -104,18 +163,15 @@ async def item_detail(request: Request, item_id: str):
 
     media_sources = item.get("MediaSources", [])
     if media_sources:
-        audio_streams = _extract_audio_streams(media_sources)
-        if audio_streams:
-            item["audio_streams"] = audio_streams
+        _apply_audio_streams(item, media_sources)
+        _apply_subtitle_streams(item, media_sources)
 
     return templates.TemplateResponse(
         request,
         "items/index.html",
         {
             "item": item,
-            "children": [
-                normalize_item(c, settings.jellyfin_api_url) for c in children
-            ],
+            "children": [normalize_item(c, settings.jellyfin_api_url) for c in children],
             "presets": settings.presets,
             "settings": settings,
             "active_page": "items",

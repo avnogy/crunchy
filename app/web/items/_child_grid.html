@@ -1,0 +1,9 @@
+{% import "shared/macros.html" as ui %} {% call ui.section_card("Contained
+Items", "Open a season or related item before starting a download.") %}
+<div
+  class="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4"
+>
+  {% for child in children %} {{ ui.item_card(child, show_type=True) }} {%
+  endfor %}
+</div>
+{% endcall %}

@@ -1,113 +1,163 @@
-async function createJob(payload) {
-  const resp = await fetch("/api/jobs", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+const EPISODE_CARD_SELECTED_CLASSES = ["ui-selected-card"];
+const EPISODE_CARD_IDLE_CLASSES = ["border-slate-200", "bg-white"];
+const EPISODE_BADGE_SELECTED_CLASSES = ["ui-selected-indicator"];
+const EPISODE_BADGE_IDLE_CLASSES = [
+  "border-slate-300",
+  "bg-white",
+  "text-transparent",
+];
 
-  let result = null;
-  try {
-    result = await resp.json();
-  } catch (error) {
-    result = null;
-  }
-
-  return { ok: resp.ok, result };
+function isInteractiveTarget(target) {
+  return Boolean(
+    target.closest(
+      "button, a, select, option, input, label, textarea, [role='button']",
+    ),
+  );
 }
 
-document
-  .getElementById("download-form")
-  ?.addEventListener("submit", async (event) => {
-    event.preventDefault();
+async function createJob(payload) {
+  try {
+    const result = await window.ui.requestJson("/api/jobs", {
+      method: "POST",
+      body: payload,
+    });
+    return { ok: true, result };
+  } catch (error) {
+    return { ok: false, result: error.data || { detail: error.message } };
+  }
+}
 
-    const form = event.target;
-    const resultDiv = document.getElementById("job-result");
-    if (!resultDiv) {
+function getEpisodeCheckboxes(root = document) {
+  return window.ui.queryAll('input[name="item_ids"]', root);
+}
+
+function isVisibleElement(element) {
+  return Boolean(
+    element &&
+      (element.offsetParent ||
+        element.getClientRects().length > 0 ||
+        getComputedStyle(element).position === "fixed"),
+  );
+}
+
+function getVisibleEpisodeCheckboxes(root = document) {
+  return getEpisodeCheckboxes(root).filter((checkbox) =>
+    isVisibleElement(checkbox.closest(".episode-card")),
+  );
+}
+
+function syncEpisodeCardState(checkbox) {
+  const card = checkbox.closest(".episode-card");
+  if (!card) {
+    return;
+  }
+
+  const checked = checkbox.checked;
+  card.dataset.selected = checked ? "true" : "false";
+  window.ui.toggleClasses(
+    card,
+    checked,
+    EPISODE_CARD_SELECTED_CLASSES,
+    EPISODE_CARD_IDLE_CLASSES,
+  );
+
+  const badge = card.querySelector(".episode-selection-indicator");
+  window.ui.toggleClasses(
+    badge,
+    checked,
+    EPISODE_BADGE_SELECTED_CLASSES,
+    EPISODE_BADGE_IDLE_CLASSES,
+  );
+}
+
+function updateSelectionSummary() {
+  const selectedCount = getVisibleEpisodeCheckboxes().filter(
+    (checkbox) => checkbox.checked,
+  ).length;
+  const countEl = document.getElementById("selected-count");
+  const suffixEl = document.getElementById("selected-count-suffix");
+
+  if (countEl) {
+    countEl.textContent = String(selectedCount);
+  }
+  if (suffixEl) {
+    suffixEl.textContent = selectedCount === 1 ? "" : "s";
+  }
+}
+
+function setCheckedState(checkbox, checked) {
+  checkbox.checked = checked;
+  syncEpisodeCardState(checkbox);
+}
+
+function getStreamIndex(select) {
+  if (!select || select.value === "") {
+    return null;
+  }
+
+  return Number(select.value);
+}
+
+async function submitSingleDownload(form) {
+  const submitButton = form.querySelector('button[type="submit"]');
+
+  await window.ui.withBusyState(submitButton, "Saving...", async () => {
+    const { ok, result } = await createJob({
+      item_id: form.item_id.value,
+      item_name: form.item_name.value,
+      preset: form.preset.value,
+      audio_stream_index: getStreamIndex(form.audio_stream_index),
+      subtitle_stream_index: getStreamIndex(form.subtitle_stream_index),
+    });
+
+    if (ok) {
+      toast.success("Job created!");
       return;
     }
 
-    resultDiv.innerHTML = '<p class="text-gray-600">Creating job...</p>';
-
-    try {
-      const { ok, result } = await createJob({
-        item_id: form.item_id.value,
-        item_name: form.item_name.value,
-        preset: form.preset.value,
-        audio_stream_index: form.audio_stream_index?.value !== '' ? Number(form.audio_stream_index.value) : null,
-      });
-
-      if (ok) {
-        const message = result?.deduped
-          ? "Job already exists!"
-          : "Job created!";
-        resultDiv.innerHTML = `<p class="text-green-600">${message} <a href="/jobs?job=${result.job.id}" class="text-blue-600 hover:underline">View job</a></p>`;
-        return;
-      }
-
-      resultDiv.innerHTML = `<p class="text-red-600">Error: ${result?.detail || "Unknown error"}</p>`;
-    } catch (error) {
-      resultDiv.innerHTML = '<p class="text-red-600">Failed to create job.</p>';
-    }
+    toast.error(result?.detail || "Unknown error");
   });
+}
 
-document.getElementById("select-all")?.addEventListener("change", (event) => {
-  document.querySelectorAll('input[name="item_ids"]').forEach((checkbox) => {
-    checkbox.checked = event.target.checked;
-  });
-});
+async function submitBatchDownload(form) {
+  const checked = getVisibleEpisodeCheckboxes(form).filter(
+    (checkbox) => checkbox.checked,
+  );
 
-document.querySelectorAll(".episode-row").forEach((row) => {
-  row.addEventListener("click", (event) => {
-    const checkbox = row.querySelector('input[type="checkbox"]');
-    if (checkbox && event.target !== checkbox) {
-      checkbox.checked = !checkbox.checked;
-    }
-  });
-});
+  if (checked.length === 0) {
+    toast.error("Select at least one episode");
+    return;
+  }
 
-document
-  .getElementById("batch-download-form")
-  ?.addEventListener("submit", async (event) => {
-    event.preventDefault();
+  const submitButton = form.querySelector('button[type="submit"]');
+  const preset = form.querySelector('[name="preset"]')?.value;
+  if (!preset) {
+    toast.error("Missing preset");
+    return;
+  }
 
-    const form = event.target;
-    const checked = document.querySelectorAll('input[name="item_ids"]:checked');
-    const resultDiv = document.getElementById("batch-result");
-    if (!resultDiv) {
-      return;
-    }
-
-    if (checked.length === 0) {
-      resultDiv.innerHTML =
-        '<p class="text-red-600">Select at least one episode.</p>';
-      return;
-    }
-
-    resultDiv.innerHTML = '<p class="text-gray-600">Creating jobs...</p>';
-
-    const preset = form.preset.value;
+  await window.ui.withBusyState(submitButton, "Queueing...", async () => {
     let created = 0;
-    let deduped = 0;
-    const createdIds = [];
     const errors = [];
 
     for (const checkbox of checked) {
       try {
-        const audioSelect = document.querySelector(`select[data-item-id="${CSS.escape(checkbox.value)}"]`);
+        const audioSelect = form.querySelector(
+          `select[data-item-id="${CSS.escape(checkbox.value)}"][data-stream-kind="audio"]`,
+        );
+        const subtitleSelect = form.querySelector(
+          `select[data-item-id="${CSS.escape(checkbox.value)}"][data-stream-kind="subtitle"]`,
+        );
         const { ok, result } = await createJob({
           item_id: checkbox.value,
           item_name: checkbox.dataset.name,
           preset,
-          audio_stream_index: audioSelect?.value !== '' ? Number(audioSelect.value) : null,
+          audio_stream_index: getStreamIndex(audioSelect),
+          subtitle_stream_index: getStreamIndex(subtitleSelect),
         });
 
         if (ok) {
-          if (result?.deduped) {
-            deduped += 1;
-          } else {
-            created += 1;
-          }
-          createdIds.push(result.job.id);
+          created += 1;
         } else {
           errors.push(result?.detail || "Unknown error");
         }
@@ -116,18 +166,80 @@ document
       }
     }
 
-    if (created > 0 || deduped > 0) {
-      const focusJob = createdIds[0] ? `?job=${createdIds[0]}` : "";
-      const parts = [];
-      if (created > 0) {
-        parts.push(`Created ${created} job(s)`);
-      }
-      if (deduped > 0) {
-        parts.push(`reused ${deduped} existing job(s)`);
-      }
-      resultDiv.innerHTML = `<p class="text-green-600">${parts.join(", ")}. <a href="/jobs${focusJob}" class="text-blue-600 hover:underline">View jobs</a></p>`;
+    if (created > 0) {
+      toast.success(`Created ${created} job(s)`);
       return;
     }
 
-    resultDiv.innerHTML = `<p class="text-red-600">Failed: ${errors.join(", ")}</p>`;
+    toast.error(`Failed: ${errors.join(", ")}`);
   });
+}
+
+function applyBatchAction(action) {
+  getVisibleEpisodeCheckboxes().forEach((checkbox) => {
+    if (action === "all") {
+      setCheckedState(checkbox, true);
+    } else if (action === "none") {
+      setCheckedState(checkbox, false);
+    } else if (action === "invert") {
+      setCheckedState(checkbox, !checkbox.checked);
+    }
+  });
+
+  updateSelectionSummary();
+}
+
+function initializeEpisodeCards() {
+  getEpisodeCheckboxes().forEach(syncEpisodeCardState);
+  updateSelectionSummary();
+}
+
+document.addEventListener("change", (event) => {
+  if (event.target.matches('input[name="item_ids"]')) {
+    syncEpisodeCardState(event.target);
+    updateSelectionSummary();
+    return;
+  }
+
+  if (event.target.id === "batch-preset") {
+    const proxy = document.getElementById("batch-preset-mobile-proxy");
+    if (proxy) {
+      proxy.value = event.target.value;
+    }
+  }
+});
+
+document.addEventListener("click", (event) => {
+  const batchActionButton = event.target.closest("[data-batch-action]");
+  if (batchActionButton) {
+    applyBatchAction(batchActionButton.dataset.batchAction);
+    return;
+  }
+
+  const card = event.target.closest(".episode-card");
+  if (!card || isInteractiveTarget(event.target)) {
+    return;
+  }
+
+  const checkbox = card.querySelector('input[name="item_ids"]');
+  if (!checkbox) {
+    return;
+  }
+
+  setCheckedState(checkbox, !checkbox.checked);
+  updateSelectionSummary();
+});
+
+window.ui.query("#download-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await submitSingleDownload(event.currentTarget);
+});
+
+window.ui
+  .query("#batch-download-form")
+  ?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitBatchDownload(event.currentTarget);
+  });
+
+initializeEpisodeCards();

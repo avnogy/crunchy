@@ -1,7 +1,16 @@
 const expandedJobs = new Set();
 const requestedJobId = new URLSearchParams(window.location.search).get("job");
 const pollIntervalMs = Math.max(500, Number(window.jobsPollIntervalMs) || 3000);
-let pollInterval = null;
+const jobsContainer = document.getElementById("jobs-list");
+const pollController = window.ui.startPolling(loadJobs, pollIntervalMs);
+
+const JOB_STATE_CLASSES = {
+  completed: "ui-status-success",
+  failed: "ui-status-danger",
+  running: "ui-status-info",
+  queued: "ui-status-warning",
+  cancelled: "ui-status-muted",
+};
 
 if (requestedJobId) {
   expandedJobs.add(requestedJobId);
@@ -12,37 +21,20 @@ function formatDuration(totalSeconds) {
   const hours = Math.floor(safeSeconds / 3600);
   const mins = Math.floor((safeSeconds % 3600) / 60);
   const secs = Math.round(safeSeconds % 60);
+
   if (hours > 0) {
     return `${hours.toString().padStart(2, "0")}:${mins
       .toString()
       .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   }
+
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
-function parseCurrentTime(value) {
-  const parts = String(value || "").split(":");
-  if (parts.length === 3) {
-    return (
-      Number.parseInt(parts[0], 10) * 3600 +
-      Number.parseInt(parts[1], 10) * 60 +
-      Number.parseFloat(parts[2])
-    );
-  }
-
-  if (parts.length === 2) {
-    return Number.parseInt(parts[0], 10) * 60 + Number.parseFloat(parts[1]);
-  }
-
-  return Number.NaN;
-}
-
 function getCurrentSeconds(job) {
-  if (typeof job.progress?.current_seconds === "number") {
-    return job.progress.current_seconds;
-  }
-
-  return NaN;
+  return typeof job.progress?.current_seconds === "number"
+    ? job.progress.current_seconds
+    : NaN;
 }
 
 function getEta(job) {
@@ -64,166 +56,142 @@ function getEta(job) {
 
 function formatCurrentTime(job) {
   const totalSeconds = getCurrentSeconds(job);
-  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) {
-    return "-";
-  }
-  return formatDuration(totalSeconds);
+  return Number.isFinite(totalSeconds) && totalSeconds >= 0
+    ? formatDuration(totalSeconds)
+    : "-";
 }
 
 function getStateClasses(state) {
-  const stateColors = {
-    completed: "bg-green-100 text-green-800",
-    failed: "bg-red-100 text-red-800",
-    running: "bg-blue-100 text-blue-800",
-    queued: "bg-yellow-100 text-yellow-800",
-    cancelled: "bg-gray-100 text-gray-600",
-  };
-  return stateColors[state] || "bg-gray-100 text-gray-600";
+  return JOB_STATE_CLASSES[state] || JOB_STATE_CLASSES.cancelled;
 }
 
 function renderIcon(name, extraClass = "") {
-  return `<i data-lucide="${name}" class="w-5 h-5 ${extraClass}" aria-hidden="true"></i>`;
+  return `<i data-lucide="${name}" class="h-5 w-5 ${extraClass}" aria-hidden="true"></i>`;
 }
 
 function refreshIcons() {
-  if (window.lucide?.createIcons) {
-    window.lucide.createIcons();
-  }
+  window.lucide?.createIcons?.();
 }
 
 function renderActions(job) {
   const canDownload = job.state === "completed" && job.download_available;
+  const jobId = encodeURIComponent(job.id);
   const downloadButton = canDownload
-    ? `<a href="/api/jobs/${job.id}/download" class="inline-flex items-center justify-center bg-green-600 text-white w-10 h-10 rounded-lg hover:bg-green-700 transition" title="Download" aria-label="Download">${renderIcon("download")}</a>`
-    : `<button type="button" disabled class="inline-flex items-center justify-center bg-gray-200 text-gray-400 w-10 h-10 rounded-lg cursor-not-allowed" title="Download unavailable" aria-label="Download unavailable">${renderIcon("download")}</button>`;
+    ? `<a href="/api/jobs/${jobId}/download" class="ui-button-primary inline-flex h-10 w-10 items-center justify-center rounded-lg transition" title="Download" aria-label="Download">${renderIcon("download")}</a>`
+    : `<button type="button" disabled class="inline-flex h-10 w-10 cursor-not-allowed items-center justify-center rounded-lg bg-slate-200 text-slate-400" title="Download unavailable" aria-label="Download unavailable">${renderIcon("download")}</button>`;
   const renderLogLink = () =>
-    `<a href="/api/jobs/${job.id}/log" target="_blank" rel="noopener" class="inline-flex items-center justify-center border border-blue-200 text-blue-600 w-10 h-10 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition" title="View log" aria-label="View log">${renderIcon("file-text")}</a>`;
-  const cancelButton = `<button type="button" data-cancel-job="${job.id}" class="inline-flex items-center justify-center bg-red-600 text-white w-10 h-10 rounded-lg hover:bg-red-700 transition ml-auto" title="Cancel job" aria-label="Cancel job">${renderIcon("x")}</button>`;
+    `<a href="/api/jobs/${jobId}/log" target="_blank" rel="noopener" class="ui-button-secondary inline-flex h-10 w-10 items-center justify-center rounded-lg border transition" title="View log" aria-label="View log">${renderIcon("file-text")}</a>`;
+  const cancelButton = `<button type="button" data-cancel-job="${window.ui.escapeHtml(job.id)}" class="ui-button-danger ml-auto inline-flex h-10 w-10 items-center justify-center rounded-lg border transition" title="Cancel job" aria-label="Cancel job">${renderIcon("x")}</button>`;
+  const deleteButton = `<button type="button" data-delete-job="${window.ui.escapeHtml(job.id)}" class="ui-button-danger ml-auto inline-flex h-10 w-10 items-center justify-center rounded-lg border transition" title="Delete job" aria-label="Delete job">${renderIcon("trash-2")}</button>`;
 
   if (job.state === "completed") {
-    const logLink = job.log_path ? renderLogLink() : "";
-    return `
-      ${downloadButton}
-      ${logLink}
-    `;
+    return `${downloadButton}${job.log_path ? renderLogLink() : ""}${deleteButton}`;
   }
-
-  if (job.state === "queued" || job.state === "running") {
-    const logLink = job.log_path ? renderLogLink() : "";
-    return `
-      ${downloadButton}
-      ${logLink}
-      ${cancelButton}
-    `;
+  if (job.state === "running") {
+    return `${downloadButton}${job.log_path ? renderLogLink() : ""}${cancelButton}`;
   }
-
+  if (job.state === "queued") {
+    return `${downloadButton}${job.log_path ? renderLogLink() : ""}${cancelButton}`;
+  }
   if (job.log_path) {
-    return `
-      ${downloadButton}
-      ${renderLogLink()}
-    `;
+    return `${downloadButton}${renderLogLink()}${deleteButton}`;
   }
 
-  return downloadButton;
+  return `${downloadButton}${deleteButton}`;
+}
+
+function renderMetaRow(label, value, extraClass = "") {
+  return `
+    <div class="${extraClass}">
+      <dt class="text-sm text-gray-500">${label}</dt>
+      <dd class="break-all text-gray-700">${value}</dd>
+    </div>
+  `;
 }
 
 function renderJobCard(job) {
   const expanded = expandedJobs.has(job.id);
-  const eta = getEta(job);
+  const safeJobId = window.ui.escapeHtml(job.id);
+  const safeItemName = window.ui.escapeHtml(job.item_name);
+  const itemPageId = encodeURIComponent(job.item_id);
+  const safePresetName = window.ui.escapeHtml(
+    job.preset?.name || job.preset || "",
+  );
+  const safeErrorMessage = window.ui.escapeHtml(job.error_message || "");
+  const safeState = window.ui.escapeHtml(job.state || "");
   const showProgress = job.state === "running" || job.state === "queued";
-  const currentTime = formatCurrentTime(job);
-  const totalDuration = job.progress?.duration
-    ? formatDuration(job.progress.duration)
-    : "-";
-  const statusSummary = showProgress
+  const progressSummary = showProgress
     ? `
-      <span class="text-sm text-gray-500">${currentTime} / ${totalDuration}</span>
-      <span class="text-sm text-green-600">ETA ${eta}</span>
+      <span class="text-sm text-gray-500">${window.ui.escapeHtml(formatCurrentTime(job))} / ${window.ui.escapeHtml(job.progress?.duration ? formatDuration(job.progress.duration) : "-")}</span>
+      <span class="text-sm text-slate-600">ETA ${window.ui.escapeHtml(getEta(job))}</span>
     `
     : job.error_message
-      ? `<span class="text-sm text-red-600 truncate max-w-full">${job.error_message}</span>`
+      ? `<span class="max-w-full truncate text-sm text-red-600">${safeErrorMessage}</span>`
       : "";
-  const outputRow = job.output_path
-    ? `
-      <div class="md:col-span-2">
-        <dt class="text-sm text-gray-500">Output</dt>
-        <dd class="text-gray-700 break-all">${job.output_path}</dd>
-      </div>
-    `
-    : "";
-  const errorRow = job.error_message
-    ? `
-      <div class="md:col-span-2">
-        <dt class="text-sm text-gray-500">Error</dt>
-        <dd class="text-red-600 break-words">${job.error_message}</dd>
-      </div>
-    `
-    : "";
-  const progressDetails = showProgress
-    ? `
-      <div>
-        <dt class="text-sm text-gray-500">Speed</dt>
-        <dd class="text-gray-700">${job.speed || "-"}</dd>
-      </div>
-      <div>
-        <dt class="text-sm text-gray-500">Duration</dt>
-        <dd class="text-gray-700">${job.progress?.duration ? formatDuration(job.progress.duration) : "-"}</dd>
-      </div>
-    `
-    : "";
 
+  const details = [
+    renderMetaRow("ID", `<span class="font-mono text-sm">${safeJobId}</span>`),
+    renderMetaRow("State", safeState),
+    renderMetaRow("Created", window.ui.escapeHtml(job.created_at || "-")),
+    renderMetaRow("Started", window.ui.escapeHtml(job.started_at || "-")),
+    renderMetaRow("Finished", window.ui.escapeHtml(job.finished_at || "-")),
+  ];
+
+  if (showProgress) {
+    details.push(
+      renderMetaRow("Speed", window.ui.escapeHtml(job.speed || "-")),
+    );
+    details.push(
+      renderMetaRow(
+        "Duration",
+        job.progress?.duration
+          ? window.ui.escapeHtml(formatDuration(job.progress.duration))
+          : "-",
+      ),
+    );
+  }
+  if (job.output_path) {
+    details.push(
+      renderMetaRow(
+        "Output",
+        window.ui.escapeHtml(job.output_path),
+        "md:col-span-2",
+      ),
+    );
+  }
+  if (job.error_message) {
+    details.push(renderMetaRow("Error", safeErrorMessage, "md:col-span-2"));
+  }
   return `
-    <article class="border border-gray-200 rounded-xl bg-gray-50 overflow-hidden">
-      <div class="px-5 py-4 bg-white">
+    <article class="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+      <div class="bg-white px-5 py-4">
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-3">
-              <strong class="text-gray-900">${job.item_name}</strong>
-              <span class="px-3 py-1 text-sm font-medium rounded-full ${getStateClasses(job.state)}">${job.state}</span>
-              <span class="text-gray-500 text-sm">${job.preset?.name || job.preset}</span>
-              ${statusSummary}
+              <a href="/items/${itemPageId}" class="font-semibold text-slate-900 transition hover:text-slate-700 hover:underline">${safeItemName}</a>
+              <span class="rounded-full px-3 py-1 text-sm font-medium ${getStateClasses(job.state)}">${safeState}</span>
+              <span class="text-sm text-slate-500">${safePresetName}</span>
+              ${progressSummary}
             </div>
           </div>
-          <div class="flex flex-wrap items-center gap-3 min-w-[120px]">
+          <div class="flex min-w-[120px] flex-wrap items-center gap-3">
             ${renderActions(job)}
           </div>
         </div>
       </div>
       <button
         type="button"
-        data-toggle-job="${job.id}"
-        class="flex w-full items-center justify-center bg-gray-100 text-gray-500 h-6 hover:bg-gray-200 hover:text-gray-700 transition border-t border-gray-200"
+        data-toggle-job="${safeJobId}"
+        class="flex h-7 w-full items-center justify-center border-t border-slate-200 bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
         aria-expanded="${expanded ? "true" : "false"}"
         title="${expanded ? "Collapse details" : "Expand details"}"
         aria-label="${expanded ? "Collapse details" : "Expand details"}"
       >
         <span class="transform ${expanded ? "rotate-180" : ""}">${renderIcon("chevron-down")}</span>
       </button>
-      <div class="${expanded ? "block" : "hidden"} px-5 pb-5 border-t border-gray-200 bg-gray-50">
+      <div class="${expanded ? "block" : "hidden"} border-t border-slate-200 bg-slate-50 px-5 pb-5">
         <dl class="grid gap-4 pt-5 md:grid-cols-2">
-          <div>
-            <dt class="text-sm text-gray-500">ID</dt>
-            <dd class="font-mono text-sm text-gray-700 break-all">${job.id}</dd>
-          </div>
-          <div>
-            <dt class="text-sm text-gray-500">State</dt>
-            <dd class="font-medium text-gray-700">${job.state}</dd>
-          </div>
-          <div>
-            <dt class="text-sm text-gray-500">Created</dt>
-            <dd class="text-gray-700">${job.created_at || "-"}</dd>
-          </div>
-          <div>
-            <dt class="text-sm text-gray-500">Started</dt>
-            <dd class="text-gray-700">${job.started_at || "-"}</dd>
-          </div>
-          <div>
-            <dt class="text-sm text-gray-500">Finished</dt>
-            <dd class="text-gray-700">${job.finished_at || "-"}</dd>
-          </div>
-          ${progressDetails}
-          ${outputRow}
-          ${errorRow}
+          ${details.join("")}
         </dl>
       </div>
     </article>
@@ -236,49 +204,34 @@ async function cancelJob(jobId) {
   }
 
   try {
-    const response = await fetch(`/api/jobs/${jobId}/cancel`, {
-      method: "POST",
-    });
-    if (!response.ok) {
-      throw new Error("Failed to cancel");
-    }
+    await window.ui.request(`/api/jobs/${jobId}/cancel`, { method: "POST" });
     await loadJobs();
   } catch (error) {
-    window.alert("Failed to cancel");
+    toast.error("Failed to cancel");
   }
 }
 
-function bindJobEvents() {
-  document.querySelectorAll("[data-toggle-job]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const jobId = button.dataset.toggleJob;
-      if (expandedJobs.has(jobId)) {
-        expandedJobs.delete(jobId);
-      } else {
-        expandedJobs.add(jobId);
-      }
-      loadJobs();
-    });
-  });
-
-  document.querySelectorAll("[data-cancel-job]").forEach((button) => {
-    button.addEventListener("click", () => cancelJob(button.dataset.cancelJob));
-  });
-}
-
-async function loadJobs() {
-  const container = document.getElementById("jobs-list");
-  if (!container) {
+async function deleteJob(jobId) {
+  if (!window.confirm("Delete this job and all related files?")) {
     return;
   }
 
   try {
-    const resp = await fetch("/api/jobs");
-    if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status}`);
-    }
+    await window.ui.request(`/api/jobs/${jobId}`, { method: "DELETE" });
+    expandedJobs.delete(jobId);
+    await loadJobs();
+  } catch (error) {
+    toast.error(error?.message || "Failed to delete");
+  }
+}
 
-    const data = await resp.json();
+async function loadJobs() {
+  if (!jobsContainer) {
+    return;
+  }
+
+  try {
+    const data = await window.ui.request("/api/jobs");
     const jobs = data.jobs || [];
 
     if (requestedJobId && jobs.some((job) => job.id === requestedJobId)) {
@@ -286,38 +239,49 @@ async function loadJobs() {
     }
 
     if (jobs.length === 0) {
-      container.innerHTML = '<p class="text-gray-500">No jobs yet.</p>';
+      jobsContainer.innerHTML = window.ui.renderEmptyState("No jobs yet.");
       return;
     }
 
-    container.innerHTML = `<div class="space-y-4">${jobs.map(renderJobCard).join("")}</div>`;
-    bindJobEvents();
+    jobsContainer.innerHTML = `<div class="space-y-4">${jobs.map(renderJobCard).join("")}</div>`;
     refreshIcons();
   } catch (error) {
-    container.innerHTML = '<p class="text-red-600">Failed to load.</p>';
+    toast.error("Failed to load");
   }
 }
 
-function stopPoll() {
-  if (pollInterval) {
-    clearInterval(pollInterval);
-    pollInterval = null;
-  }
-}
-
-function startPoll() {
-  stopPoll();
-  loadJobs();
-  pollInterval = setInterval(loadJobs, pollIntervalMs);
-}
-
-document.getElementById("poll-toggle")?.addEventListener("change", (event) => {
-  if (event.target.checked) {
-    startPoll();
+document.addEventListener("click", (event) => {
+  const toggleButton = event.target.closest("[data-toggle-job]");
+  if (toggleButton) {
+    const jobId = toggleButton.dataset.toggleJob;
+    if (expandedJobs.has(jobId)) {
+      expandedJobs.delete(jobId);
+    } else {
+      expandedJobs.add(jobId);
+    }
+    loadJobs();
     return;
   }
 
-  stopPoll();
+  const cancelButton = event.target.closest("[data-cancel-job]");
+  if (cancelButton) {
+    cancelJob(cancelButton.dataset.cancelJob);
+    return;
+  }
+
+  const deleteButton = event.target.closest("[data-delete-job]");
+  if (deleteButton) {
+    deleteJob(deleteButton.dataset.deleteJob);
+  }
 });
 
-startPoll();
+document.getElementById("poll-toggle")?.addEventListener("change", (event) => {
+  if (event.target.checked) {
+    pollController.start();
+    return;
+  }
+
+  pollController.stop();
+});
+
+pollController.start();

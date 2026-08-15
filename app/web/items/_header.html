@@ -1,0 +1,45 @@
+{% import "shared/macros.html" as ui %} {% call
+ui.section_card(body_class="space-y-5") %}
+<div class="flex flex-col gap-4 sm:flex-row sm:items-start">
+  <div class="w-24 shrink-0 overflow-hidden rounded-xl bg-slate-100 sm:w-28">
+    <img
+      src="{{ settings.jellyfin_api_url }}/Items/{{ item.Id }}/Images/Primary?quality=80&width=400"
+      alt="{{ item.Name }}"
+      class="w-full select-none object-cover"
+      draggable="false"
+    />
+  </div>
+  <div class="min-w-0 flex-1 space-y-4">
+    <div class="space-y-1.5">
+      <p class="text-xs uppercase tracking-[0.16em] text-slate-400">
+        {{ item.Type or "Item" }}
+      </p>
+      <h1
+        class="text-2xl font-semibold leading-tight text-slate-900 sm:text-3xl"
+      >
+        {{ item.Name }}
+      </h1>
+    </div>
+
+    <div class="flex flex-wrap gap-2 text-sm">
+      {% if item.ProductionYear %}
+      <span
+        class="ui-pill-muted inline-flex items-center rounded-full px-3 py-1"
+        >{{ item.ProductionYear }}</span
+      >
+      {% endif %} {% if has_episode_children %}
+      <span
+        class="ui-pill-muted inline-flex items-center rounded-full px-3 py-1"
+        >{{ children|length }} episodes</span
+      >
+      {% endif %}
+    </div>
+
+    {% if item.Overview %}
+    <p class="max-w-3xl text-sm leading-6 text-slate-600">
+      {{ item.Overview }}
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% endcall %}

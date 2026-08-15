@@ -18,11 +18,14 @@ FFMPEG_RESERVED_FLAGS = {
     "-c",
     "-c:v",
     "-c:a",
+    "-c:s",
+    "-map",
     "-b:v",
     "-b:a",
     "-vf",
     "-hide_banner",
     "-loglevel",
+    "-report",
     "-movflags",
     "-y",
     "-progress",
@@ -30,14 +33,25 @@ FFMPEG_RESERVED_FLAGS = {
 }
 
 
+def is_reserved_ffmpeg_flag(token: str) -> bool:
+    """Return whether a flag overrides an option owned by the application."""
+    option = token.split("=", 1)[0]
+    return option in FFMPEG_RESERVED_FLAGS
+
+
+def ensure_allowed_ffmpeg_flags(flags: list[str]) -> None:
+    """Reject an entire flag set when it contains app-owned ffmpeg options."""
+    rejected_flags = [flag for flag in flags if is_reserved_ffmpeg_flag(flag)]
+    if rejected_flags:
+        raise ValueError("FFmpeg flags contain reserved option(s): " + ", ".join(rejected_flags))
+
+
 def validate_ffmpeg_flags(flags: list[str]) -> list[str]:
-    for token in flags:
-        if token in FFMPEG_RESERVED_FLAGS:
-            logger.warning("Rejected reserved ffmpeg flag: %s", token)
-            raise HTTPException(
-                status_code=400,
-                detail=f"Flag '{token}' is not allowed as it conflicts with required options",
-            )
+    try:
+        ensure_allowed_ffmpeg_flags(flags)
+    except ValueError as exc:
+        logger.warning("Rejected ffmpeg flag configuration: %s", exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return flags
 
@@ -87,8 +101,11 @@ def update_settings(app_state: Any, payload: SettingsPatch) -> Settings:
     save_settings(updated_settings)
     app_state.settings = updated_settings
 
+    setup_logging(
+        updated_settings.log_level,
+        [updated_settings.jellyfin_api_key, updated_settings.app_password],
+    )
     if updated_settings.log_level != previous_log_level:
-        setup_logging(updated_settings.log_level)
         logger.info("Log level updated to %s", updated_settings.log_level)
         logger.debug("Debug logging is now enabled")
         logger.warning("Warning logging remains enabled")
