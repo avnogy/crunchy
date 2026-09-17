@@ -14,7 +14,13 @@ logger = logging.getLogger(__name__)
 class JellyfinClient:
     def __init__(self, settings: Settings) -> None:
         self._url = settings.jellyfin_api_url
-        self._headers = {"X-Emby-Token": settings.jellyfin_api_key}
+        self._headers = {
+            "Authorization": (
+                'MediaBrowser Client="crunchy", Device="crunchy", '
+                'DeviceId="crunchy", Version="1.0", Token="'
+                f'{settings.jellyfin_api_key}"'
+            )
+        }
         self._user_id = settings.jellyfin_user_id
 
     @asynccontextmanager

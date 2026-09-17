@@ -1,278 +1,196 @@
-{% extends "shared/base.html" %} {% block title %}Settings - crunchy{% endblock
-%} {% block content %}
-<form id="settings-form" class="space-y-6 max-w-5xl">
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-        <h2 class="text-xl font-semibold text-gray-700 mb-2">Jellyfin</h2>
-        <p class="text-sm text-gray-500 mb-6">
-            Credentials and connection details for browsing items and starting transcodes.
-        </p>
-        <div class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1"
-                    >API URL</label
-                >
-                <input
-                    type="url"
-                    name="jellyfin_api_url"
-                    required
-                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="https://jellyfin.example.com"
-                />
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1"
-                    >API Key</label
-                >
-                <input
-                    type="password"
-                    name="jellyfin_api_key"
-                    id="jellyfin-api-key"
-                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    autocomplete="new-password"
-                />
-                <p id="jellyfin-api-key-help" class="text-xs text-gray-500 mt-1">
-                    Leave blank to keep current
-                </p>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1"
-                    >User ID</label
-                >
-                <input
-                    type="text"
-                    name="jellyfin_user_id"
-                    id="jellyfin-user-id"
-                    required
-                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-            </div>
-        </div>
+{% extends "shared/base.html" %} {% import "shared/macros.html" as ui %} {%
+block title %}Settings - crunchy{% endblock %} {% block content %} {% set
+redis_actions %}
+<button
+  type="button"
+  id="check-redis-health"
+  class="ui-button-secondary rounded-lg border px-4 py-2 text-sm font-medium transition"
+>
+  Check connection
+</button>
+{% endset %}
+
+<form id="settings-form" class="space-y-6">
+  {{ ui.page_header("Settings") }} {% call ui.section_card("Jellyfin") %}
+  <div class="grid gap-4 md:grid-cols-2">
+    {% call ui.form_field("API URL") %}
+    <input
+      type="url"
+      name="jellyfin_api_url"
+      required
+      class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800"
+      placeholder="https://jellyfin.example.com"
+    />
+    {% endcall %} {% call ui.form_field("User ID") %}
+    <input
+      type="text"
+      name="jellyfin_user_id"
+      id="jellyfin-user-id"
+      required
+      class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800"
+    />
+    {% endcall %}
+  </div>
+
+  {% call ui.form_field("API Key") %}
+  <input
+    type="password"
+    name="jellyfin_api_key"
+    id="jellyfin-api-key"
+    class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800"
+    autocomplete="new-password"
+  />
+  <p id="jellyfin-api-key-help" class="text-xs text-slate-500"></p>
+  {% endcall %} {% endcall %} {% call ui.section_card("Paths") %}
+  <div class="space-y-4">
+    {% call ui.form_field("Settings File") %}
+    <p
+      class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700"
+    >
+      /config/settings.json
+    </p>
+    <p class="text-xs text-slate-500">
+      Container path is fixed. Change the host-side Docker mount with
+      <code>CONFIG_PATH</code> in your environment.
+    </p>
+    {% endcall %} {% call ui.form_field("Worker Temp Directory") %}
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <p
+        class="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700"
+      >
+        {{ transcoding_temp_dir }}
+      </p>
+      <button
+        type="button"
+        id="clear-temp-dir"
+        class="ui-button-danger shrink-0 rounded-lg border px-4 py-2.5 text-sm font-medium transition"
+      >
+        Empty
+      </button>
+    </div>
+    <p class="text-xs text-slate-500">
+      Container path is fixed. Change the host-side Docker mount with
+      <code>TEMP_PATH</code> in your environment.
+    </p>
+    {% endcall %} {% call ui.form_field("Output Directory") %}
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <p
+        class="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700"
+      >
+        {{ output_dir }}
+      </p>
+      <button
+        type="button"
+        id="clear-output-dir"
+        class="ui-button-danger shrink-0 rounded-lg border px-4 py-2.5 text-sm font-medium transition"
+      >
+        Empty
+      </button>
+    </div>
+    <p class="text-xs text-slate-500">
+      Container path is fixed. Change the host-side Docker mount with
+      <code>OUTPUT_PATH</code> in your environment.
+    </p>
+    {% endcall %}
+  </div>
+  {% endcall %} {% call ui.section_card("Application") %}
+  <div class="space-y-4">
+    {% call ui.form_field("App Password") %}
+    <input
+      type="password"
+      name="app_password"
+      id="app-password"
+      class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800"
+      autocomplete="new-password"
+    />
+    <p id="app-password-help" class="text-xs text-slate-500">Required</p>
+    {% endcall %}
+
+    <div class="grid gap-4 md:grid-cols-2">
+      {% call ui.form_field("Host") %}
+      <input
+        type="text"
+        name="app_host"
+        required
+        class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800"
+      />
+      {% endcall %} {% call ui.form_field("Port") %}
+      <input
+        type="number"
+        name="app_port"
+        min="1"
+        max="65535"
+        required
+        class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800"
+      />
+      {% endcall %}
     </div>
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-        <h2 class="text-xl font-semibold text-gray-700 mb-2">Paths</h2>
-        <p class="text-sm text-gray-500 mb-6">
-            Internal container paths used for worker temp data and finished downloads.
-        </p>
-        <div class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1"
-                    >Worker Temp Directory</label
-                >
-                <div class="flex gap-3 items-center">
-                    <p class="flex-1 px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm text-gray-700">{{ transcoding_temp_dir }}</p>
-                    <button
-                        type="button"
-                        id="clear-temp-dir"
-                        class="shrink-0 px-4 py-2 rounded-lg bg-red-600 text-white border border-red-700 hover:bg-red-700 hover:border-red-800 shadow-sm font-medium"
-                    >
-                        Empty
-                    </button>
-                </div>
-                <p class="text-xs text-gray-500 mt-1">
-                    This is the fixed in-container worker temp path. Choose RAM-backed or disk-backed storage in Docker Compose, not here.
-                </p>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1"
-                    >Output Directory</label
-                >
-                <div class="flex gap-3 items-center">
-                    <p class="flex-1 px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm text-gray-700">{{ output_dir }}</p>
-                    <button
-                        type="button"
-                        id="clear-output-dir"
-                        class="shrink-0 px-4 py-2 rounded-lg bg-red-600 text-white border border-red-700 hover:bg-red-700 hover:border-red-800 shadow-sm font-medium"
-                    >
-                        Empty
-                    </button>
-                </div>
-                <p class="text-xs text-gray-500 mt-1">
-                    Completed downloads are always written to this internal path and backed by the host path configured with <code>OUTPUT_PATH</code>.
-                </p>
-            </div>
-            <div id="paths-result" class="text-sm text-gray-500"></div>
-        </div>
-    </div>
+    {% call ui.form_field("Jobs Poll Interval (ms)") %}
+    <input
+      type="number"
+      name="jobs_poll_interval_ms"
+      min="500"
+      step="500"
+      required
+      class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800"
+    />
+    {% endcall %} {% call ui.form_field("Log Level") %}
+    <select
+      name="log_level"
+      required
+      class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800"
+    >
+      {% for level in valid_log_levels %}
+      <option value="{{ level }}">{{ level }}</option>
+      {% endfor %}
+    </select>
+    {% endcall %} {% call ui.form_field("FFmpeg Flags") %}
+    <input
+      type="text"
+      name="ffmpeg_flags"
+      class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800"
+      placeholder="-keyint_min 2 -g 2"
+    />
+    <p class="text-sm text-slate-500">Command preview</p>
+    <pre
+      id="ffmpeg-preview"
+      class="ui-code-surface overflow-x-auto rounded-lg border border-slate-200 p-4 font-mono text-xs"
+    ></pre>
+    {% endcall %}
+  </div>
+  {% endcall %} {% call ui.section_card("Redis Queue", actions=redis_actions) %}
+  <div class="grid gap-4 md:grid-cols-2">
+    {% call ui.form_field("Redis Host") %}
+    <input
+      type="text"
+      name="redis_host"
+      required
+      class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800"
+      placeholder="redis"
+    />
+    {% endcall %} {% call ui.form_field("Redis Port") %}
+    <input
+      type="number"
+      name="redis_port"
+      min="1"
+      max="65535"
+      required
+      class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800"
+      placeholder="6379"
+    />
+    {% endcall %}
+  </div>
+  {% endcall %} {% include "settings/_presets.html" %}
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-        <h2 class="text-xl font-semibold text-gray-700 mb-2">Application</h2>
-        <p class="text-sm text-gray-500 mb-6">
-            Web UI auth, network binding, polling behavior, and worker ffmpeg options.
-        </p>
-        <div class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1"
-                    >App Password</label
-                >
-                <input
-                    type="password"
-                    name="app_password"
-                    id="app-password"
-                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    autocomplete="new-password"
-                />
-                <p id="app-password-help" class="text-xs text-gray-500 mt-1">
-                    Leave blank to keep current
-                </p>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1"
-                        >Host</label
-                    >
-                    <input
-                        type="text"
-                        name="app_host"
-                        required
-                        class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1"
-                        >Port</label
-                    >
-                    <input
-                        type="number"
-                        name="app_port"
-                        min="1"
-                        max="65535"
-                        required
-                        class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                </div>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1"
-                    >Jobs Poll Interval (ms)</label
-                >
-                <input
-                    type="number"
-                    name="jobs_poll_interval_ms"
-                    min="500"
-                    step="500"
-                    required
-                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-                <p class="text-xs text-gray-500 mt-1">
-                    How often the jobs page refreshes live job state.
-                </p>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1"
-                    >Log Level</label
-                >
-                <select
-                    name="log_level"
-                    required
-                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                    {% for level in valid_log_levels %}
-                    <option value="{{ level }}">{{ level }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1"
-                    >FFmpeg Flags</label
-                >
-                <input
-                    type="text"
-                    name="ffmpeg_flags"
-                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="-keyint_min 2 -g 2"
-                />
-                <p class="text-xs text-gray-500 mt-1">
-                    Extra flags appended by the external ffmpeg worker, e.g. -keyint_min 2 -g 2
-                </p>
-                <p class="text-sm text-gray-500 mt-3">
-                    FFmpeg worker command preview:
-                </p>
-                <pre
-                    id="ffmpeg-preview"
-                    class="bg-gray-800 text-green-400 text-xs p-4 rounded-lg overflow-x-auto font-mono mt-1"
-                ></pre>
-            </div>
-        </div>
-    </div>
-
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-        <div class="flex justify-between items-center mb-2">
-            <h2 class="text-xl font-semibold text-gray-700">Redis Queue</h2>
-            <button
-                type="button"
-                id="check-redis-health"
-                class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium"
-            >
-                Check Connection
-            </button>
-        </div>
-        <p class="text-sm text-gray-500 mb-6">
-            Redis is used for job queuing.
-        </p>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1"
-                    >Redis Host</label
-                >
-                <input
-                    type="text"
-                    name="redis_host"
-                    required
-                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="redis"
-                />
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1"
-                    >Redis Port</label
-                >
-                <input
-                    type="number"
-                    name="redis_port"
-                    min="1"
-                    max="65535"
-                    required
-                    class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="6379"
-                />
-            </div>
-        </div>
-        <div id="redis-health-result" class="text-sm text-gray-500 mt-4">
-            Uses the currently saved settings.
-        </div>
-    </div>
-
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <div class="flex justify-end gap-4 items-center">
-            <div id="save-result" class="text-sm text-gray-500"></div>
-            <button
-                type="submit"
-                class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-medium"
-            >
-                Save
-            </button>
-        </div>
-    </div>
-
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-        <div class="flex justify-between items-center mb-6">
-            <div>
-                <h2 class="text-xl font-semibold text-gray-700">Transcoding Presets</h2>
-                <p class="text-sm text-gray-500 mt-2">
-                    Define the output profiles shown when queueing a transcode.
-                </p>
-            </div>
-            <button
-                type="button"
-                id="add-preset"
-                class="text-blue-600 hover:text-blue-700 font-medium"
-            >
-                + Add
-            </button>
-        </div>
-        <div id="presets-list" class="space-y-4"></div>
-    </div>
+  <div class="flex justify-end">
+    <button
+      type="submit"
+      class="ui-button-primary rounded-lg px-6 py-3 text-sm font-semibold transition"
+    >
+      Save settings
+    </button>
+  </div>
 </form>
 {% endblock %} {% block scripts %}
 <script src="/assets/settings/page.js" defer></script>

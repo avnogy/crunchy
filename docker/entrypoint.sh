@@ -1,25 +1,54 @@
 #!/bin/sh
 set -eu
 
-TARGET_UID="${APP_UID:-}"
-TARGET_GID="${APP_GID:-}"
+APP_USER="crunchy"
+APP_HOME="/home/${APP_USER}"
+APP_DIR="/app"
+CONFIG_DIR="/config"
+DATA_DIR="/data"
 
-CURRENT_UID="$(id -u crunchy)"
-CURRENT_GID="$(id -g crunchy)"
+target_uid="${APP_UID:-}"
+target_gid="${APP_GID:-}"
+service_mode="${CRUNCHY_SERVICE_MODE:-web}"
+
+current_uid="$(id -u "${APP_USER}")"
+current_gid="$(id -g "${APP_USER}")"
+
+remap_user() {
+    if [ -n "${target_gid}" ] && [ "${target_gid}" != "${current_gid}" ]; then
+        groupmod -o -g "${target_gid}" "${APP_USER}"
+        current_gid="${target_gid}"
+    fi
+
+    if [ -n "${target_uid}" ] && [ "${target_uid}" != "${current_uid}" ]; then
+        usermod -o -u "${target_uid}" -g "${current_gid}" "${APP_USER}"
+        current_uid="${target_uid}"
+    fi
+}
+
+fix_permissions() {
+    chown -R "${current_uid}:${current_gid}" "${APP_HOME}" "${DATA_DIR}" "${CONFIG_DIR}"
+}
+
+if [ "$#" = "0" ]; then
+    case "${service_mode}" in
+        web)
+            set -- uvicorn "app.main:app" --host "${APP_HOST:-0.0.0.0}" --port "${APP_PORT:-8000}"
+            ;;
+        worker)
+            set -- python -m worker.ffmpeg
+            ;;
+        *)
+            echo "Unknown CRUNCHY_SERVICE_MODE: ${service_mode}" >&2
+            exit 1
+            ;;
+    esac
+fi
 
 if [ "$(id -u)" = "0" ]; then
-    if [ -n "$TARGET_GID" ] && [ "$TARGET_GID" != "$CURRENT_GID" ]; then
-        groupmod -o -g "$TARGET_GID" crunchy
-        CURRENT_GID="$TARGET_GID"
-    fi
-
-    if [ -n "$TARGET_UID" ] && [ "$TARGET_UID" != "$CURRENT_UID" ]; then
-        usermod -o -u "$TARGET_UID" -g "$CURRENT_GID" crunchy
-        CURRENT_UID="$TARGET_UID"
-    fi
-
-    chown -R "$CURRENT_UID:$CURRENT_GID" /home/crunchy /data /app
-    exec gosu crunchy "$@"
+    remap_user
+    fix_permissions
+    exec gosu "${APP_USER}" "$@"
 fi
 
 exec "$@"

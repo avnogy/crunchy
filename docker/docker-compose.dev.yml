@@ -1,0 +1,28 @@
+x-dev-build: &dev-build
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+    args:
+      APP_UID: ${APP_UID:-1000}
+      APP_GID: ${APP_GID:-1000}
+
+x-dev-watch: &dev-watch
+  develop:
+    watch:
+      - action: sync+restart
+        path: ../app
+        target: /app/app
+      - action: sync+restart
+        path: ../worker
+        target: /app/worker
+      - action: rebuild
+        path: ../requirements.txt
+      - action: rebuild
+        path: ./Dockerfile
+
+services:
+  crunchy:
+    <<: [*dev-build, *dev-watch]
+
+  ffmpeg-worker:
+    <<: [*dev-build, *dev-watch]
