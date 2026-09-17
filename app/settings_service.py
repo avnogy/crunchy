@@ -25,6 +25,7 @@ FFMPEG_RESERVED_FLAGS = {
     "-vf",
     "-hide_banner",
     "-loglevel",
+    "-headers",
     "-report",
     "-movflags",
     "-y",
