@@ -12,6 +12,7 @@ VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 _JELLYFIN_API_KEY_PATTERNS = (
     re.compile(r"(?i)(api_key=)[^&\s'\"]+"),
     re.compile(r"(?i)(x-emby-token:\s*)\S+"),
+    re.compile(r'(?i)(\btoken\s*=\s*["\']?)[^\s,;"\']+'),
 )
 
 

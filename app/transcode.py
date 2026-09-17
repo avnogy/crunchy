@@ -68,6 +68,12 @@ def get_ffmpeg_command(
     args = [
         "ffmpeg",
         "-y",
+        "-headers",
+        (
+            'Authorization: MediaBrowser Client="crunchy", Device="crunchy", '
+            'DeviceId="crunchy", Version="1.0", Token="'
+            f'{settings.jellyfin_api_key}"\r\n'
+        ),
         "-i",
         input_url,
         "-map",
@@ -104,7 +110,6 @@ def _build_transcode_url(settings: Settings, job: Job, source_id: str) -> str:
     url = f"{settings.jellyfin_api_url}/Videos/{job.item_id}/main.m3u8"
     preset = Preset(**job.preset)
     params = {
-        "api_key": settings.jellyfin_api_key,
         "playSessionId": job.id,
         "mediaSourceId": source_id,
         "videoCodec": preset.videoCodec,
