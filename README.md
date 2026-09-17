@@ -1,4 +1,5 @@
 # crunchy
+[![Build and Push to GHCR](https://github.com/avnogy/crunchy/actions/workflows/build-push-ghcr.yml/badge.svg?branch=main&event=release)](https://github.com/avnogy/crunchy/actions/workflows/build-push-ghcr.yml)
 
 `crunchy` is a small web app for downloading smaller offline-friendly versions of media from Jellyfin.
 
